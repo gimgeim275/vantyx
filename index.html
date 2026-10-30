@@ -258,6 +258,7 @@ kbd{background:#ece8e1;color:#0f1923;padding:0 6px;font-weight:800;margin-right:
 .pl.dead::after{content:'';position:absolute;left:2px;right:2px;top:50%;height:2px;background:#ff4655;transform:rotate(-40deg)}
 .team.me .pl.dead::after{background:#7dffd6}
 #topbar{left:16px;top:12px;transform:none;gap:14px;padding:5px 12px;font-size:13px}
+#miniMap{position:absolute;left:16px;top:54px;width:190px;height:190px;border:1px solid rgba(236,232,225,.4);background:#161d28;box-shadow:0 0 14px rgba(0,0,0,.55);pointer-events:none}
 #banner{position:absolute;left:50%;top:24%;transform:translateX(-50%);text-align:center;opacity:0;transition:opacity .3s;text-shadow:0 0 12px #000;white-space:nowrap}
 #banner.on{opacity:1}
 #bnTitle{font-size:clamp(34px,6vw,64px);font-weight:900;letter-spacing:10px}
@@ -322,6 +323,7 @@ kbd{background:#ece8e1;color:#0f1923;padding:0 6px;font-weight:800;margin-right:
 <body>
 <canvas id="game"></canvas>
 <div id="hud" style="display:none">
+  <canvas id="miniMap" width="190" height="190"></canvas>
   <div id="windfx"></div><div id="ultfx"></div><div id="dashfx"></div><div id="empfx"></div><div id="ghostfx"></div><div id="omorbfx"></div><div id="hastefx"></div><div id="ndyfx"></div><div id="isofx"></div><div id="isoflash"></div><div id="nefx"></div><div id="neflash"></div><div id="sgfx"></div><div id="svfx"></div><div id="svring"></div><div id="svlv"></div><div id="svflash"></div><div id="pxfx"></div><div id="pxflash"></div><div id="svhud"></div>
   <div id="dmg"></div>
   <div id="smokeov"></div>
@@ -379,6 +381,7 @@ kbd{background:#ece8e1;color:#0f1923;padding:0 6px;font-weight:800;margin-right:
   <div class="pkBody">
     <div class="pk" data-map="default"><canvas id="thDef" width="220" height="220"></canvas><h3>기본</h3><small>DEFAULT</small></div>
     <div class="pk" data-map="ascent"><canvas id="thAsc" width="220" height="220"></canvas><h3>사막</h3><small>DESERT</small></div>
+    <div class="pk" data-map="asc2"><canvas id="thAs2" width="220" height="220"></canvas><h3>어센트</h3><small>ASCENT</small></div>
   </div>
   <div id="mpMsg"></div>
   <div class="asBottom"><button class="mbtn sec" id="btnMapBack">뒤로</button></div>
@@ -642,7 +645,7 @@ addBox(0,-30,12,4,5,0xe8dfd0);addBox(14,28,4,4,1.2,0xc9a77c);
 const DEF_BOXES=boxes.slice();
 const NAV={on:false,run:1,blk:null};            // 봇 길찾기 (사막 맵에서만 사용)
 const MB={hx:40,hz:40};                          // 현재 맵의 플레이 가능 범위(벽 안쪽 반폭)
-let curMap='default',selMap='default',ASC=null,navBudget=1;
+let curMap='default',selMap='default',ASC=null,ASC2=null,GFN=null,navBudget=1;   // GFN: 맵별 바닥 높이 함수(낮은 바닥이 있는 맵만 사용)
 const KMD={respT:0,protT:0};
 const _kmSunDir=new V3();
 
@@ -707,21 +710,25 @@ function overlapXZ(e,b){return e.pos.x+e.r>b.x0&&e.pos.x-e.r<b.x1&&e.pos.z+e.r>b
 function physics(e,dt){
  if(!e.noGrav)e.vel.y=Math.max(e.vel.y-GRAV*dt,-32);
  if(e.glide&&e.vel.y<-2.2)e.vel.y=-2.2;
+ const ox=e.pos.x;
  e.pos.x+=e.vel.x*dt;
  if(e.vel.x!==0)for(const b of boxes){
   if(e.pos.y<b.y1-STEP&&e.pos.y+e.h>b.y0&&overlapXZ(e,b)){
    e.pos.x=e.vel.x>0?b.x0-e.r:b.x1+e.r;e.vel.x=0;
   }
  }
+ if(GFN&&e.vel.x!==0&&GFN(e.pos.x+(e.vel.x>0?e.r:-e.r),e.pos.z)>e.pos.y+STEP){e.pos.x=ox;e.vel.x=0;}   // 낮은 바닥(웅덩이)에서 높은 턱은 못 올라감
+ const oz=e.pos.z;
  e.pos.z+=e.vel.z*dt;
  if(e.vel.z!==0)for(const b of boxes){
   if(e.pos.y<b.y1-STEP&&e.pos.y+e.h>b.y0&&overlapXZ(e,b)){
    e.pos.z=e.vel.z>0?b.z0-e.r:b.z1+e.r;e.vel.z=0;
   }
  }
+ if(GFN&&e.vel.z!==0&&GFN(e.pos.x,e.pos.z+(e.vel.z>0?e.r:-e.r))>e.pos.y+STEP){e.pos.z=oz;e.vel.z=0;}
  const py=e.pos.y;
  e.pos.y+=e.vel.y*dt;
- let gy=0;
+ let gy=GFN?GFN(e.pos.x,e.pos.z):0;
  for(const b of boxes){if(b.y1<=py+STEP&&b.y1>gy&&overlapXZ(e,b))gy=b.y1;}
  if(e.vel.y>0&&curMap!=='default')for(const b of boxes){if(b.y0>=py+e.h-.05&&b.y0<e.pos.y+e.h&&overlapXZ(e,b)){e.pos.y=b.y0-e.h;e.vel.y=0;}}
  e.onGround=false;
@@ -3278,7 +3285,7 @@ function renderMinimap(){
  for(const b of bots)b.mesh.visible=false;
  const vmv=vm.visible,jv=jett.visible,sc=scene.fog,pv=CL.prev&&CL.prev.visible;
  vm.visible=false;vmLH.visible=false;jett.visible=false;
- const rfs=(curMap==='ascent'&&ASC)?ASC.roofs:null;if(rfs)for(const r of rfs)r.visible=false;
+ const _mo=mapObj(curMap),rfs=_mo?_mo.roofs:null;if(rfs)for(const r of rfs)r.visible=false;
  mapMark.visible=true;mapMark.position.set(P.pos.x,3,P.pos.z);mapMark.rotation.order='YXZ';mapMark.rotation.set(-Math.PI/2,yaw,0);
  renderer.setRenderTarget(mapRT);renderer.clear();renderer.render(scene,mapCam);renderer.setRenderTarget(null);
  const W=innerWidth,H=innerHeight;
@@ -5972,6 +5979,7 @@ function buildSlots(){
 }
 buildSlots();
 function updateHUD(dt){
+ drawMini(dt);
  setT($('sMe'),String(M.me));setT($('sEn'),String(M.en));setT($('rn'),killMode()?fmtTime(M.timeLeft)+' · '+KM_GOAL+'킬':'ROUND '+M.round+' · '+WIN_ROUNDS+'선승');
  for(let i=0;i<alivePips.length;i++)alivePips[i].classList.toggle('dead',bots[i].dead);
  alivePipMe.classList.toggle('dead',P.dead);setT(alivePipMe,AGENTS[agent].name.charAt(0));
@@ -6500,6 +6508,11 @@ const MAPCFG={
   env:{fog:[0xf0e3cb,130,400],hemi:[0xcfe3ff,0xb59a76,.8],sun:[0xfff0d0,1.0,35,60,25],sky:[0x4d8fdc,0xf8e7c9],far:520,skyS:1.5,camH:152,orbit:[70,32,90,0],pr:1.25,sh:48,ss:1536},
   pSpawn:wide=>wide?[rand(-8,8),rand(77,87)]:[rand(-6,6),82],
   bZone:[-18,18,-91,-78]
+ },
+ asc2:{   // 어센트 (라운드제)
+  env:{fog:[0xdfe6ee,150,420],hemi:[0xdbe8ff,0x8a7a66,.85],sun:[0xfff0d2,.95,40,70,30],sky:[0x4d8fdc,0xcfe0f0],far:520,skyS:1.5,camH:150,orbit:[72,36,72,0],pr:1.25,sh:50,ss:1536},
+  pSpawn:wide=>wide?[rand(-15,-7),rand(36,52)]:[rand(-14,-8),44],
+  bZone:[0,13,-60,-43]
  }
 };
 /* ---- 사막(어센트) 맵 생성: 어센트 맵 파일의 지형 그대로 (문은 항상 열려 있음) ---- */
@@ -6968,8 +6981,770 @@ const MAPS=1.3;
 return {group:AG,boxes,floors,roofs,doors,hx:46*MAPS,hz:78*MAPS};
 }
 
-/* ---- 봇 길찾기 (사막 맵 전용): 격자 + A* ---- */
-function navBuild(list,hx,hz){
+/* ---- 어센트 맵 (격자 지형 + 지형지물 + 문/스위치) : 라운드제 ---- */
+function buildAsc2(){
+var FINAL={"v": 2, "objs": [{"t": "crate", "x": -25.04, "z": -48.8, "ry": 0, "lift": 0, "w": 1.6, "h": 1.6, "d": 1.6}, {"t": "crate", "x": -25.44, "z": -47.04, "ry": 0, "lift": 0, "w": 1.3, "h": 1.3, "d": 1.3}, {"t": "crate", "x": -25.28, "z": -49.92, "ry": 0, "lift": 0, "w": 1.1, "h": 1.1, "d": 1.1}, {"t": "crate", "x": -25.28, "z": -49.92, "ry": 0, "lift": 1.1, "w": 1.1, "h": 1.1, "d": 1.1}, {"t": "crate", "x": -30.48, "z": -53.44, "ry": 0, "lift": 0, "w": 2, "h": 2, "d": 2}, {"t": "crate", "x": -20.75, "z": -55.5, "ry": 0, "lift": 0, "w": 1.4, "h": 3, "d": 2.9}, {"t": "crate", "x": -33.75, "z": -21.25, "ry": 0, "lift": 0, "w": 1.8, "h": 1.8, "d": 1.8}, {"t": "crate", "x": -14, "z": -56.5, "ry": 0, "lift": 0, "w": 1.6, "h": 1.6, "d": 1.6}, {"t": "crate", "x": 9.76, "z": -25.76, "ry": 0, "lift": 0, "w": 2, "h": 2, "d": 2}, {"t": "crate", "x": 15.36, "z": -33.6, "ry": 0, "lift": 0, "w": 1.6, "h": 1.6, "d": 1.6}, {"t": "crate", "x": 36.96, "z": -20.4, "ry": 0, "lift": 0, "w": 2.2, "h": 2.2, "d": 2.2}, {"t": "crate", "x": 42.56, "z": -15.52, "ry": 0, "lift": 0, "w": 2, "h": 2, "d": 2}, {"t": "crate", "x": -8, "z": -9.6, "ry": 0, "lift": 0, "w": 1.8, "h": 1.8, "d": 1.8}, {"t": "crate", "x": 7.6, "z": 1.44, "ry": 0, "lift": 0, "w": 2, "h": 2, "d": 2}, {"t": "crate", "x": -8.4, "z": 4.96, "ry": 0, "lift": 0, "w": 1.8, "h": 1.8, "d": 1.8}, {"t": "crate", "x": -10.64, "z": 7.36, "ry": 0, "lift": 0, "w": 1.4, "h": 1.4, "d": 1.4}, {"t": "crate", "x": 18.96, "z": -4.4, "ry": 0, "lift": 0, "w": 1.8, "h": 1.8, "d": 1.8}, {"t": "crate", "x": -38.48, "z": 38.4, "ry": 0, "lift": 0.3, "w": 1.8, "h": 1.8, "d": 1.8}, {"t": "crate", "x": -24.25, "z": 33.75, "ry": 0, "lift": 0.3, "w": 1, "h": 1, "d": 1}, {"t": "crate", "x": -15.75, "z": 33.25, "ry": 0, "lift": 0, "w": 2.1, "h": 2.1, "d": 2.1}, {"t": "crate", "x": -29.2, "z": 40.8, "ry": 0.785, "lift": 0.3, "w": 2.6, "h": 2.6, "d": 2.6}, {"t": "crate", "x": -29.25, "z": 40.75, "ry": 0.785, "lift": 2.9, "w": 1.6, "h": 1.6, "d": 1.6}, {"t": "crate", "x": -27.44, "z": 43.2, "ry": 0, "lift": 0.3, "w": 1.4, "h": 1.4, "d": 1.4}, {"t": "crate", "x": -31.28, "z": 38.24, "ry": 0, "lift": 0.3, "w": 1.2, "h": 1.2, "d": 1.2}, {"t": "boat", "x": -29.04, "z": 31.04, "ry": 0, "lift": 0, "s": 1}, {"t": "fountain", "x": 2.64, "z": 1.44, "ry": 0, "lift": 0, "s": 1}, {"t": "house", "x": 8.25, "z": 36.75, "ry": 0, "lift": 0, "w": 5, "h": 3.1, "d": 4.2, "c": 14467226, "rc": 11883311}, {"t": "pillar", "x": 45.52, "z": 19.44, "ry": 0, "lift": 0, "r": 1.8, "h": 3.2, "c": 14075046}, {"t": "tree", "x": -14.75, "z": -19.75, "ry": 0, "lift": 0, "s": 1.2}, {"t": "tree", "x": 23.76, "z": 32.4, "ry": 0, "lift": 0, "s": 0.9}, {"t": "bush", "x": -11.44, "z": -20.8, "ry": 0, "lift": 0, "s": 1}, {"t": "bush", "x": 30.16, "z": 23.2, "ry": 0, "lift": 0, "s": 0.9}, {"t": "bush", "x": -46.64, "z": 8, "ry": 0, "lift": 0, "s": 0.8}, {"t": "crate", "x": 33.5, "z": -2.5, "ry": 0, "lift": 0, "w": 2.5, "h": 2, "d": 2.5}, {"t": "wall", "x": -35.25, "z": 31.25, "ry": 1.571, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -33, "z": 33, "ry": 0, "lift": 0, "w": 4, "h": 5.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -29, "z": 33, "ry": 0, "lift": 0, "w": 4, "h": 5.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -25.25, "z": 33, "ry": 0, "lift": 0, "w": 4, "h": 5.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -23.75, "z": 33, "ry": 3.142, "lift": 0, "w": 4, "h": 5.5, "d": 0.5, "c": 14467226}, {"t": "door", "x": -12.5, "z": -35, "ry": 0, "lift": 0, "w": 4.3, "h": 4.4, "d": 0.35, "uid": 1, "open": true}, {"t": "door", "x": -27.5, "z": 14, "ry": 0, "lift": 0, "w": 2.6, "h": 4.4, "d": 0.35, "uid": 2, "open": true}, {"t": "switch", "x": -15.25, "z": -36.5, "ry": 0, "lift": 0, "s": 1, "link": 1}, {"t": "switch", "x": -28.5, "z": 29, "ry": 0, "lift": 0, "s": 1, "link": 2}, {"t": "stairs", "x": 2.75, "z": -6, "ry": 9.425, "lift": 0, "w": 3.6, "h": 1.6, "d": 4, "c": 12168344}, {"t": "crate", "x": -30.5, "z": -51.5, "ry": 0, "lift": 0, "w": 1.3, "h": 1.3, "d": 1.3}, {"t": "generator", "x": -25.75, "z": -39.5, "ry": 0, "lift": 0.8, "s": 1.7}, {"t": "platform", "x": -25.25, "z": -39.5, "ry": 0, "lift": 0, "w": 7.5, "h": 0.8, "d": 3.4, "c": 10128506}, {"t": "wall", "x": -7.5, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -3.75, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -2, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -1, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": 6.5, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": 10.5, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": 14, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": 15, "z": -8.25, "ry": 0, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": 17, "z": -6.5, "ry": 4.712, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": 17, "z": -4.5, "ry": 1.571, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "crate", "x": -20.5, "z": -44.75, "ry": 0, "lift": 0, "w": 1.2, "h": 1, "d": 1.2}, {"t": "ultorb", "x": -1.75, "z": -31.25, "ry": 0, "lift": 0, "s": 1}, {"t": "ultorb", "x": -15.75, "z": 33.25, "ry": 0, "lift": 2.1, "s": 1}, {"t": "crate", "x": -16.25, "z": 35, "ry": 0, "lift": 0, "w": 1.2, "h": 1.2, "d": 1.2}, {"t": "platform", "x": -34.75, "z": -48.75, "ry": 0, "lift": 2.5, "w": 7.1, "h": 0.8, "d": 14, "c": 10128506}, {"t": "pillar", "x": -35.75, "z": -29.75, "ry": 0, "lift": 0, "r": 0.5, "h": 4.5, "c": 14075046}, {"t": "pillar", "x": -32.5, "z": -29.75, "ry": 0, "lift": 0, "r": 0.5, "h": 4.5, "c": 14075046}, {"t": "platform", "x": -34, "z": -26.5, "ry": 0, "lift": 4.5, "w": 4.2, "h": 0.8, "d": 7.5, "c": 10128506}, {"t": "glasswall", "x": -32, "z": -25.75, "ry": 4.712, "lift": 0, "w": 3.2, "h": 4.6, "d": 0.12, "c": 12182517}, {"t": "pillar", "x": -32.25, "z": -23.5, "ry": 0, "lift": 0, "r": 0.6, "h": 4, "c": 14075046}, {"t": "pillar", "x": -32.25, "z": -28, "ry": 0, "lift": 0, "r": 0.6, "h": 4, "c": 14075046}, {"t": "wall", "x": -22, "z": 35.25, "ry": 1.571, "lift": 0, "w": 4, "h": 4.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -22, "z": 31, "ry": 1.571, "lift": 0, "w": 4, "h": 3.5, "d": 0.5, "c": 14467226}, {"t": "wall", "x": -40.5, "z": 26.75, "ry": 1.571, "lift": 0, "w": 2.5, "h": 4, "d": 2.1, "c": 14467226}, {"t": "crate", "x": -22.75, "z": 35.25, "ry": 0, "lift": 0.3, "w": 1, "h": 1, "d": 1}, {"t": "crate", "x": -23, "z": 34, "ry": 0, "lift": 0.3, "w": 1.6, "h": 1.6, "d": 1.6}, {"t": "bush", "x": -21, "z": 4, "ry": 0, "lift": 0, "s": 1}, {"t": "barrel", "x": -31.25, "z": 4.5, "ry": 0, "lift": 0, "r": 0.5, "h": 1, "c": 8084021}, {"t": "wall", "x": 1.25, "z": -33.25, "ry": 1.571, "lift": 0, "w": 4, "h": 4.6, "d": 1.2, "c": 14467226}, {"t": "barrel", "x": 2.25, "z": -34, "ry": 0, "lift": 0, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 2.25, "z": -33, "ry": 0, "lift": 0, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 2.25, "z": -34, "ry": 0, "lift": 1, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 2.25, "z": -33, "ry": 0, "lift": 1, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 2.25, "z": -34, "ry": 0, "lift": 2, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 2.25, "z": -33, "ry": 0, "lift": 2, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 2.25, "z": -34, "ry": 0, "lift": 3, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 3.25, "z": -33, "ry": 0, "lift": 0, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 3.25, "z": -33, "ry": 0, "lift": 1, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 3.25, "z": -34, "ry": 0, "lift": 0, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 3.25, "z": -34, "ry": 0, "lift": 1, "r": 0.5, "h": 1, "c": 8084021}, {"t": "barrel", "x": 4.5, "z": -33.25, "ry": 0, "lift": 0, "r": 0.5, "h": 1, "c": 8084021}, {"t": "crate", "x": -11.75, "z": -56, "ry": 0, "lift": 0, "w": 3, "h": 3, "d": 3}, {"t": "pillar", "x": -32.25, "z": -55, "ry": 0, "lift": 3.3, "r": 0.7, "h": 3.2, "c": 14075046}, {"t": "wall", "x": -31.25, "z": -43.75, "ry": 1.571, "lift": 0, "w": 4, "h": 2.9, "d": 0.5, "c": 14467226}], "layout": [{"k": "open", "x1": 502, "y1": 1188, "x2": 544, "y2": 1218}, {"k": "open", "x1": 514, "y1": 1182, "x2": 556, "y2": 1230}, {"k": "open", "x1": 544, "y1": 1170, "x2": 586, "y2": 1242}, {"k": "open", "x1": 742, "y1": 690, "x2": 778, "y2": 786}, {"k": "open", "x1": 892, "y1": 264, "x2": 916, "y2": 324}, {"k": "open", "x1": 904, "y1": 312, "x2": 922, "y2": 330}, {"k": "open", "x1": 910, "y1": 276, "x2": 946, "y2": 318}, {"k": "open", "x1": 886, "y1": 294, "x2": 946, "y2": 330}, {"k": "open", "x1": 592, "y1": 1236, "x2": 676, "y2": 1350}, {"k": "open", "x1": 400, "y1": 1584, "x2": 460, "y2": 1656}, {"k": "open", "x1": 520, "y1": 1578, "x2": 568, "y2": 1656}, {"k": "open", "x1": 550, "y1": 1578, "x2": 580, "y2": 1608}, {"k": "open", "x1": 568, "y1": 1602, "x2": 574, "y2": 1626}, {"k": "open", "x1": 550, "y1": 1596, "x2": 580, "y2": 1626}, {"k": "wall", "x1": 856, "y1": 1206, "x2": 898, "y2": 1212}, {"k": "wall", "x1": 940, "y1": 1206, "x2": 982, "y2": 1218}, {"k": "wall", "x1": 754, "y1": 1020, "x2": 766, "y2": 1116}, {"k": "wall", "x1": 748, "y1": 738, "x2": 766, "y2": 792}, {"k": "erase", "x1": 580, "y1": 318, "x2": 754, "y2": 408}, {"k": "open", "x1": 556, "y1": 300, "x2": 736, "y2": 396}, {"k": "open", "x1": 544, "y1": 366, "x2": 742, "y2": 444}, {"k": "open", "x1": 712, "y1": 312, "x2": 754, "y2": 390}, {"k": "erase", "x1": 634, "y1": 318, "x2": 748, "y2": 402}, {"k": "open", "x1": 616, "y1": 288, "x2": 754, "y2": 402}, {"k": "open", "x1": 724, "y1": 378, "x2": 754, "y2": 414}, {"k": "erase", "x1": 706, "y1": 330, "x2": 754, "y2": 402}, {"k": "open", "x1": 688, "y1": 306, "x2": 754, "y2": 408}, {"k": "erase", "x1": 718, "y1": 360, "x2": 754, "y2": 420}, {"k": "open", "x1": 700, "y1": 330, "x2": 754, "y2": 432}, {"k": "erase", "x1": 724, "y1": 354, "x2": 760, "y2": 414}, {"k": "open", "x1": 700, "y1": 324, "x2": 760, "y2": 420}, {"k": "erase", "x1": 718, "y1": 288, "x2": 766, "y2": 414}, {"k": "open", "x1": 706, "y1": 282, "x2": 772, "y2": 420}, {"k": "wall", "x1": 484, "y1": 618, "x2": 646, "y2": 648}, {"k": "wall", "x1": 646, "y1": 558, "x2": 664, "y2": 648}, {"k": "wall", "x1": 664, "y1": 552, "x2": 700, "y2": 648}, {"k": "wall", "x1": 754, "y1": 276, "x2": 772, "y2": 396}, {"k": "wall", "x1": 748, "y1": 390, "x2": 772, "y2": 408}, {"k": "wall", "x1": 454, "y1": 1602, "x2": 526, "y2": 1626}, {"k": "wall", "x1": 568, "y1": 1602, "x2": 586, "y2": 1632}, {"k": "wall", "x1": 400, "y1": 1602, "x2": 418, "y2": 1632}, {"k": "open", "x1": 772, "y1": 1224, "x2": 820, "y2": 1314}, {"k": "open", "x1": 772, "y1": 1218, "x2": 814, "y2": 1236}, {"k": "wall", "x1": 658, "y1": 1200, "x2": 820, "y2": 1230}, {"k": "wall", "x1": 658, "y1": 1302, "x2": 670, "y2": 1356}, {"k": "wall", "x1": 610, "y1": 1200, "x2": 664, "y2": 1230}, {"k": "wall", "x1": 556, "y1": 1170, "x2": 622, "y2": 1176}, {"k": "wall", "x1": 478, "y1": 1176, "x2": 514, "y2": 1182}, {"k": "wall", "x1": 508, "y1": 1164, "x2": 526, "y2": 1182}, {"k": "open", "x1": 478, "y1": 1182, "x2": 496, "y2": 1194}, {"k": "open", "x1": 478, "y1": 1152, "x2": 538, "y2": 1212}, {"k": "wall", "x1": 472, "y1": 1170, "x2": 520, "y2": 1176}, {"k": "floor", "x1": 772, "y1": 852, "x2": 1018, "y2": 906, "h": 0}, {"k": "floor", "x1": 1144, "y1": 894, "x2": 1180, "y2": 906, "h": 0}, {"k": "floor", "x1": 778, "y1": 852, "x2": 922, "y2": 864, "h": 0}, {"k": "floor", "x1": 778, "y1": 870, "x2": 784, "y2": 888, "h": 0}, {"k": "floor", "x1": 772, "y1": 876, "x2": 790, "y2": 894, "h": 0}, {"k": "floor", "x1": 778, "y1": 882, "x2": 826, "y2": 960, "h": 0}, {"k": "floor", "x1": 772, "y1": 852, "x2": 1198, "y2": 900, "h": 2}, {"k": "floor", "x1": 1096, "y1": 888, "x2": 1114, "y2": 906, "h": 2}, {"k": "floor", "x1": 1090, "y1": 888, "x2": 1108, "y2": 906, "h": 2}, {"k": "floor", "x1": 1168, "y1": 924, "x2": 1186, "y2": 942, "h": 2}, {"k": "floor", "x1": 1096, "y1": 888, "x2": 1114, "y2": 906, "h": 2}, {"k": "floor", "x1": 1102, "y1": 894, "x2": 1192, "y2": 960, "h": 2}, {"k": "floor", "x1": 1114, "y1": 768, "x2": 1132, "y2": 786, "h": 2, "ramp": "z+", "h2": 1.2}, {"k": "floor", "x1": 1108, "y1": 774, "x2": 1126, "y2": 792, "h": 2, "ramp": "z-", "h2": 1.2}, {"k": "floor", "x1": 1114, "y1": 780, "x2": 1192, "y2": 852, "h": 2, "ramp": "z-", "h2": 1.2}, {"k": "floor", "x1": 1114, "y1": 774, "x2": 1198, "y2": 858, "h": 2, "ramp": "z-", "h2": 0}, {"k": "floor", "x1": 760, "y1": 774, "x2": 778, "y2": 792, "h": 2, "ramp": "z-", "h2": 0}, {"k": "floor", "x1": 772, "y1": 792, "x2": 832, "y2": 858, "h": 2, "ramp": "z-", "h2": 0}, {"k": "wall", "x1": 748, "y1": 756, "x2": 766, "y2": 774}, {"k": "wall", "x1": 754, "y1": 762, "x2": 772, "y2": 786}, {"k": "wall", "x1": 760, "y1": 768, "x2": 778, "y2": 792}, {"k": "floor", "x1": 418, "y1": 312, "x2": 490, "y2": 558, "h": 2}, {"k": "floor", "x1": 286, "y1": 564, "x2": 490, "y2": 618, "h": 2}, {"k": "floor", "x1": 424, "y1": 540, "x2": 442, "y2": 558, "h": 2}, {"k": "floor", "x1": 418, "y1": 540, "x2": 436, "y2": 558, "h": 2}, {"k": "floor", "x1": 424, "y1": 546, "x2": 490, "y2": 582, "h": 2}, {"k": "floor", "x1": 616, "y1": 288, "x2": 688, "y2": 390, "h": 0}, {"k": "floor", "x1": 682, "y1": 384, "x2": 736, "y2": 480, "h": 0}, {"k": "floor", "x1": 724, "y1": 474, "x2": 736, "y2": 522, "h": 0}, {"k": "floor", "x1": 616, "y1": 312, "x2": 748, "y2": 552, "h": 0}, {"k": "floor", "x1": 736, "y1": 414, "x2": 772, "y2": 456, "h": 0}, {"k": "floor", "x1": 562, "y1": 324, "x2": 670, "y2": 438, "h": 0}, {"k": "floor", "x1": 676, "y1": 330, "x2": 736, "y2": 426, "h": 0}, {"k": "floor", "x1": 412, "y1": 306, "x2": 490, "y2": 564, "h": 2.5}, {"k": "floor", "x1": 274, "y1": 558, "x2": 478, "y2": 624, "h": 2.5}, {"k": "floor", "x1": 742, "y1": 438, "x2": 754, "y2": 504, "h": 0}, {"k": "floor", "x1": 736, "y1": 468, "x2": 748, "y2": 540, "h": 0}, {"k": "floor", "x1": 406, "y1": 300, "x2": 490, "y2": 570, "h": 3.3}, {"k": "floor", "x1": 268, "y1": 552, "x2": 490, "y2": 624, "h": 3.3, "ramp": "x-", "h2": 2.5}, {"k": "floor", "x1": 274, "y1": 612, "x2": 292, "y2": 630, "h": 2.5, "ramp": "x-", "h2": 0}, {"k": "floor", "x1": 286, "y1": 618, "x2": 352, "y2": 744, "h": 2.5, "ramp": "z+", "h2": 0}, {"k": "wall", "x1": 262, "y1": 546, "x2": 286, "y2": 642}, {"k": "wall", "x1": 484, "y1": 474, "x2": 496, "y2": 576}, {"k": "height", "x1": 772, "y1": 894, "x2": 898, "y2": 906, "h": -1}, {"k": "height", "x1": 934, "y1": 900, "x2": 1108, "y2": 906, "h": -1}, {"k": "floor", "x1": 610, "y1": 1224, "x2": 664, "y2": 1296, "h": -1}, {"k": "floor", "x1": 556, "y1": 1236, "x2": 574, "y2": 1254, "h": 0}, {"k": "floor", "x1": 592, "y1": 1248, "x2": 628, "y2": 1260, "h": 0}, {"k": "floor", "x1": 646, "y1": 1260, "x2": 664, "y2": 1266, "h": 0}, {"k": "floor", "x1": 724, "y1": 1272, "x2": 742, "y2": 1290, "h": 0}, {"k": "floor", "x1": 736, "y1": 1284, "x2": 754, "y2": 1302, "h": 0}, {"k": "floor", "x1": 622, "y1": 1260, "x2": 712, "y2": 1302, "h": 0}, {"k": "floor", "x1": 388, "y1": 1278, "x2": 652, "y2": 1602, "h": 0}, {"k": "floor", "x1": 418, "y1": 1602, "x2": 574, "y2": 1716, "h": 0}, {"k": "floor", "x1": 388, "y1": 1596, "x2": 430, "y2": 1716, "h": 0}, {"k": "wall", "x1": 382, "y1": 1596, "x2": 400, "y2": 1614}, {"k": "wall", "x1": 388, "y1": 1602, "x2": 418, "y2": 1626}, {"k": "wall", "x1": 550, "y1": 1602, "x2": 586, "y2": 1632}, {"k": "wall", "x1": 448, "y1": 1602, "x2": 508, "y2": 1632}, {"k": "floor", "x1": 454, "y1": 1200, "x2": 610, "y2": 1284, "h": 0}, {"k": "floor", "x1": 574, "y1": 1236, "x2": 640, "y2": 1296, "h": 0}, {"k": "floor", "x1": 592, "y1": 1224, "x2": 670, "y2": 1278, "h": 0}, {"k": "wall", "x1": 910, "y1": 264, "x2": 928, "y2": 282}, {"k": "wall", "x1": 916, "y1": 270, "x2": 958, "y2": 348}, {"k": "wall", "x1": 910, "y1": 258, "x2": 922, "y2": 264}, {"k": "wall", "x1": 916, "y1": 264, "x2": 928, "y2": 288}, {"k": "wall", "x1": 916, "y1": 270, "x2": 928, "y2": 336}, {"k": "wall", "x1": 910, "y1": 258, "x2": 934, "y2": 366}, {"k": "wall", "x1": 862, "y1": 240, "x2": 880, "y2": 258}, {"k": "wall", "x1": 868, "y1": 246, "x2": 934, "y2": 270}, {"k": "open", "x1": 910, "y1": 264, "x2": 922, "y2": 354}, {"k": "open", "x1": 880, "y1": 324, "x2": 898, "y2": 342}, {"k": "wall", "x1": 898, "y1": 234, "x2": 940, "y2": 270}, {"k": "wall", "x1": 904, "y1": 342, "x2": 946, "y2": 372}, {"k": "wall", "x1": 898, "y1": 342, "x2": 916, "y2": 360}, {"k": "wall", "x1": 910, "y1": 324, "x2": 928, "y2": 342}, {"k": "wall", "x1": 904, "y1": 330, "x2": 922, "y2": 336}, {"k": "open", "x1": 880, "y1": 306, "x2": 922, "y2": 348}, {"k": "wall", "x1": 916, "y1": 258, "x2": 940, "y2": 366}, {"k": "floor", "x1": 934, "y1": 882, "x2": 952, "y2": 900, "h": -1}, {"k": "floor", "x1": 934, "y1": 882, "x2": 952, "y2": 900, "h": -1}, {"k": "floor", "x1": 940, "y1": 888, "x2": 1108, "y2": 912, "h": -1}, {"k": "floor", "x1": 928, "y1": 876, "x2": 1108, "y2": 900, "h": 0}, {"k": "floor", "x1": 940, "y1": 876, "x2": 958, "y2": 894, "h": 0}, {"k": "floor", "x1": 910, "y1": 870, "x2": 1132, "y2": 900, "h": 2.1}, {"k": "floor", "x1": 1102, "y1": 888, "x2": 1126, "y2": 936, "h": 2.1}, {"k": "floor", "x1": 952, "y1": 912, "x2": 964, "y2": 918, "h": 0}, {"k": "floor", "x1": 982, "y1": 906, "x2": 1084, "y2": 918, "h": 0}, {"k": "floor", "x1": 958, "y1": 900, "x2": 1090, "y2": 930, "h": 0}, {"k": "floor", "x1": 940, "y1": 894, "x2": 1096, "y2": 936, "h": 0}, {"k": "height", "x1": 934, "y1": 894, "x2": 1102, "y2": 900, "h": -1}, {"k": "height", "x1": 1090, "y1": 894, "x2": 1096, "y2": 960, "h": -1}, {"k": "floor", "x1": 898, "y1": 864, "x2": 1114, "y2": 888, "h": 2}, {"k": "floor", "x1": 1108, "y1": 762, "x2": 1198, "y2": 852, "h": 2, "ramp": "z-", "h2": 0}, {"k": "floor", "x1": 1054, "y1": 858, "x2": 1174, "y2": 894, "h": 2}, {"k": "floor", "x1": 1108, "y1": 882, "x2": 1180, "y2": 930, "h": 2}, {"k": "floor", "x1": 1096, "y1": 876, "x2": 1168, "y2": 930, "h": 2}, {"k": "height", "x1": 820, "y1": 342, "x2": 886, "y2": 408, "h": 0, "ramp": "z-", "h2": -1}, {"k": "height", "x1": 820, "y1": 270, "x2": 910, "y2": 342, "h": -1}, {"k": "wall", "x1": 478, "y1": 1032, "x2": 520, "y2": 1050}, {"k": "wall", "x1": 604, "y1": 1032, "x2": 628, "y2": 1056}, {"k": "wall", "x1": 604, "y1": 1050, "x2": 622, "y2": 1056}, {"k": "wall", "x1": 592, "y1": 1020, "x2": 616, "y2": 1038}, {"k": "wall", "x1": 580, "y1": 1026, "x2": 610, "y2": 1050}, {"k": "wall", "x1": 568, "y1": 1008, "x2": 598, "y2": 1032}, {"k": "wall", "x1": 562, "y1": 1020, "x2": 592, "y2": 1044}, {"k": "lower", "x1": 400, "y1": 294, "x2": 490, "y2": 558, "wh": 0}, {"k": "floor", "x1": 400, "y1": 300, "x2": 490, "y2": 474, "h": 0}, {"k": "open", "x1": 556, "y1": 1026, "x2": 586, "y2": 1044}, {"k": "open", "x1": 586, "y1": 1032, "x2": 610, "y2": 1056}, {"k": "open", "x1": 574, "y1": 1044, "x2": 598, "y2": 1056}, {"k": "open", "x1": 610, "y1": 1044, "x2": 628, "y2": 1062}, {"k": "open", "x1": 514, "y1": 882, "x2": 598, "y2": 918}, {"k": "open", "x1": 664, "y1": 882, "x2": 724, "y2": 918}, {"k": "floor", "x1": 430, "y1": 618, "x2": 484, "y2": 714, "h": 3.1}, {"k": "wall", "x1": 472, "y1": 714, "x2": 484, "y2": 738}, {"k": "floor", "x1": 484, "y1": 648, "x2": 508, "y2": 708, "h": 3.1, "ramp": "x+", "h2": 2}, {"k": "floor", "x1": 508, "y1": 648, "x2": 598, "y2": 708, "h": 2}, {"k": "floor", "x1": 598, "y1": 648, "x2": 658, "y2": 708, "h": 2, "ramp": "x+", "h2": 0}, {"k": "floor", "x1": 484, "y1": 708, "x2": 556, "y2": 804, "h": 2, "ramp": "z+", "h2": 1.5}, {"k": "floor", "x1": 364, "y1": 738, "x2": 478, "y2": 804, "h": 1.5, "ramp": "x-", "h2": -0.1}, {"k": "floor", "x1": 472, "y1": 738, "x2": 490, "y2": 804, "h": 1.5}, {"k": "height", "x1": 388, "y1": 1410, "x2": 610, "y2": 1608, "h": -2}, {"k": "height", "x1": 376, "y1": 1602, "x2": 586, "y2": 1728, "h": -2}, {"k": "open", "x1": 286, "y1": 1320, "x2": 388, "y2": 1350}, {"k": "open", "x1": 376, "y1": 1152, "x2": 436, "y2": 1248}, {"k": "floor", "x1": 388, "y1": 1350, "x2": 436, "y2": 1410, "h": 0, "ramp": "z+", "h2": -2}, {"k": "floor", "x1": 640, "y1": 1422, "x2": 658, "y2": 1614, "h": 0}, {"k": "floor", "x1": 622, "y1": 1590, "x2": 640, "y2": 1608, "h": 0}, {"k": "floor", "x1": 610, "y1": 1566, "x2": 652, "y2": 1608, "h": 0}, {"k": "wall", "x1": 622, "y1": 1608, "x2": 664, "y2": 1638}, {"k": "floor", "x1": 634, "y1": 1278, "x2": 658, "y2": 1512, "h": 0}, {"k": "wall", "x1": 598, "y1": 1170, "x2": 640, "y2": 1194}, {"k": "floor", "x1": 520, "y1": 1170, "x2": 556, "y2": 1188, "h": 2}, {"k": "floor", "x1": 478, "y1": 1176, "x2": 598, "y2": 1236, "h": 2}, {"k": "floor", "x1": 454, "y1": 1188, "x2": 478, "y2": 1236, "h": 2}, {"k": "open", "x1": 598, "y1": 1176, "x2": 622, "y2": 1236}, {"k": "floor", "x1": 598, "y1": 1170, "x2": 628, "y2": 1200, "h": 0}, {"k": "wall", "x1": 598, "y1": 1170, "x2": 634, "y2": 1176}, {"k": "wall", "x1": 622, "y1": 1176, "x2": 634, "y2": 1206}, {"k": "floor", "x1": 454, "y1": 1218, "x2": 484, "y2": 1278, "h": 2, "ramp": "z+", "h2": 0}, {"k": "floor", "x1": 484, "y1": 1236, "x2": 598, "y2": 1272, "h": 2}, {"k": "floor", "x1": 484, "y1": 1260, "x2": 604, "y2": 1272, "h": 0}, {"k": "floor", "x1": 472, "y1": 1338, "x2": 490, "y2": 1356, "h": 0}, {"k": "open", "x1": 622, "y1": 1176, "x2": 634, "y2": 1224}, {"k": "floor", "x1": 628, "y1": 1182, "x2": 646, "y2": 1230, "h": 0}, {"k": "floor", "x1": 628, "y1": 1176, "x2": 652, "y2": 1248, "h": 0}, {"k": "floor", "x1": 598, "y1": 1176, "x2": 616, "y2": 1206, "h": 2}, {"k": "floor", "x1": 610, "y1": 1200, "x2": 616, "y2": 1212, "h": 2}, {"k": "floor", "x1": 598, "y1": 1206, "x2": 616, "y2": 1254, "h": 2}, {"k": "floor", "x1": 592, "y1": 1248, "x2": 616, "y2": 1260, "h": 2}, {"k": "wall", "x1": 658, "y1": 1212, "x2": 670, "y2": 1260}, {"k": "wall", "x1": 652, "y1": 1212, "x2": 658, "y2": 1260}, {"k": "open", "x1": 646, "y1": 1254, "x2": 676, "y2": 1260}, {"k": "open", "x1": 640, "y1": 1290, "x2": 676, "y2": 1320}, {"k": "open", "x1": 652, "y1": 1236, "x2": 670, "y2": 1254}, {"k": "wall", "x1": 652, "y1": 1224, "x2": 670, "y2": 1248}, {"k": "open", "x1": 670, "y1": 1218, "x2": 784, "y2": 1230}, {"k": "open", "x1": 778, "y1": 1218, "x2": 820, "y2": 1230}, {"k": "wall", "x1": 784, "y1": 1302, "x2": 826, "y2": 1320}, {"k": "floor", "x1": 520, "y1": 1140, "x2": 556, "y2": 1170, "h": 2, "ramp": "z-", "h2": 0}, {"k": "wall", "x1": 472, "y1": 1146, "x2": 484, "y2": 1170}, {"k": "wall", "x1": 478, "y1": 1158, "x2": 490, "y2": 1170}, {"k": "wall", "x1": 484, "y1": 1158, "x2": 502, "y2": 1176}, {"k": "wall", "x1": 502, "y1": 1164, "x2": 514, "y2": 1170}, {"k": "open", "x1": 478, "y1": 1140, "x2": 496, "y2": 1158}, {"k": "open", "x1": 484, "y1": 1146, "x2": 526, "y2": 1170}, {"k": "wall", "x1": 472, "y1": 1134, "x2": 484, "y2": 1158}, {"k": "floor", "x1": 484, "y1": 1050, "x2": 628, "y2": 1170, "h": 2}, {"k": "floor", "x1": 520, "y1": 1026, "x2": 586, "y2": 1050, "h": 2}, {"k": "floor", "x1": 580, "y1": 1032, "x2": 610, "y2": 1050, "h": 2}, {"k": "floor", "x1": 514, "y1": 882, "x2": 598, "y2": 918, "h": 2}, {"k": "floor", "x1": 514, "y1": 918, "x2": 562, "y2": 1032, "h": 2}, {"k": "floor", "x1": 556, "y1": 912, "x2": 574, "y2": 930, "h": 2}, {"k": "floor", "x1": 556, "y1": 918, "x2": 568, "y2": 1020, "h": 2}, {"k": "floor", "x1": 562, "y1": 924, "x2": 574, "y2": 1008, "h": 2}, {"k": "floor", "x1": 574, "y1": 918, "x2": 622, "y2": 1014, "h": 2, "ramp": "x+", "h2": 0}, {"k": "wall", "x1": 562, "y1": 1008, "x2": 574, "y2": 1014}, {"k": "wall", "x1": 568, "y1": 1008, "x2": 580, "y2": 1020}, {"k": "open", "x1": 550, "y1": 990, "x2": 568, "y2": 1014}, {"k": "floor", "x1": 460, "y1": 918, "x2": 514, "y2": 1032, "h": 2, "ramp": "x-", "h2": 0}, {"k": "wall", "x1": 382, "y1": 930, "x2": 394, "y2": 1032}, {"k": "open", "x1": 886, "y1": 570, "x2": 928, "y2": 612}, {"k": "floor", "x1": 772, "y1": 900, "x2": 892, "y2": 912, "h": 0}, {"k": "floor", "x1": 886, "y1": 900, "x2": 898, "y2": 912, "h": 0}]};
+var LOPS=[];
+var S=0.08,CX=883,CY=1000,CELL=6,X0=100,Y0=240,X1=1680,Y1=1740;
+var NX=Math.ceil((X1-X0)/CELL),NY=Math.ceil((Y1-Y0)/CELL);
+var K=function(i,j){return j*NX+i;};
+var inb=function(i,j){return i>=0&&j>=0&&i<NX&&j<NY;};
+var kind=new Uint8Array(NX*NY),H=new Float32Array(NX*NY),tint=new Uint8Array(NX*NY),blocked=new Uint8Array(NX*NY),fl0=new Uint8Array(NX*NY),force=new Uint8Array(NX*NY),WH=new Float32Array(NX*NY);
+var WX=function(px){return (px-CX)*S;},WZ=function(py){return (py-CY)*S;};
+var PXof=function(wx){return wx/S+CX;},PYof=function(wz){return wz/S+CY;};
+var DX=[1,-1,0,0],DY=[0,0,1,-1]; /* E W S N */
+
+function h2(a,b,s){var x=Math.sin(a*127.1+b*311.7+s*74.7)*43758.5453;return x-Math.floor(x);}
+function rgb(h){return [(h>>16&255)/255,(h>>8&255)/255,(h&255)/255];}
+function mul(c,f){return [Math.min(1,c[0]*f),Math.min(1,c[1]*f),Math.min(1,c[2]*f)];}
+function mix(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
+
+/* ---------- 통로(바닥) 정의: x1,y1,x2,y2 (px) ---------- */
+function rect(x1,y1,x2,y2,o){
+  o=o||{};
+  var i0=Math.round((x1-X0)/CELL),i1=Math.round((x2-X0)/CELL),j0=Math.round((y1-Y0)/CELL),j1=Math.round((y2-Y0)/CELL);
+  for(var j=j0;j<j1;j++)for(var i=i0;i<i1;i++){
+    if(!inb(i,j))continue;
+    var k=K(i,j);fl0[k]=1;force[k]=0;
+    var h=o.h||0;
+    if(o.ramp){var a=o.ramp[0]==='x'?(i-i0+0.5)/(i1-i0):(j-j0+0.5)/(j1-j0);h=o.ramp[1]+(o.ramp[2]-o.ramp[1])*a;}
+    H[k]=h;
+    if(o.t!==undefined)tint[k]=o.t;
+  }
+}
+function voidRect(x1,y1,x2,y2){
+  var i0=Math.round((x1-X0)/CELL),i1=Math.round((x2-X0)/CELL),j0=Math.round((y1-Y0)/CELL),j1=Math.round((y2-Y0)/CELL);
+  for(var j=j0;j<j1;j++)for(var i=i0;i<i1;i++)if(inb(i,j))fl0[K(i,j)]=0;
+}
+/* 수비 스폰 */
+rect(112,818,380,1027,{t:3});
+rect(262,735,380,818);
+/* A 창문/정원 고리 */
+rect(283,562,345,740);
+rect(283,562,490,622);
+rect(430,620,655,715);
+rect(262,735,555,805);
+rect(470,715,555,805);
+/* A 사이트 */
+rect(425,320,645,560);
+rect(490,320,635,550,{t:1});
+rect(425,555,490,622);
+rect(645,320,762,468);
+rect(762,405,889,468);
+rect(818,268,889,610);
+rect(645,468,752,790);
+/* A 로비 */
+rect(783,610,900,668);
+rect(900,568,1214,690);
+/* 미드 */
+rect(1110,690,1214,780);
+rect(1110,780,1190,960);
+rect(1157,712,1285,780);
+rect(772,702,865,790);
+rect(772,790,830,860);
+rect(772,855,1190,960);
+rect(765,958,990,1110);
+rect(383,865,470,1030);
+rect(470,920,667,982);
+rect(383,982,765,1030);
+rect(667,920,765,1108);
+rect(758,1060,770,1100);
+rect(483,1030,625,1190);
+rect(455,1190,610,1202);
+rect(455,1202,610,1262,{ramp:['y',0,-1.2]});
+rect(455,1262,610,1330,{h:-1.2});
+rect(607,1206,668,1236);
+rect(900,1105,935,1118);
+rect(855,1115,983,1245);
+/* 공격 스폰 / B 로비 */
+rect(1283,688,1402,1080);
+rect(1402,785,1435,830);
+rect(1237,1045,1600,1215,{t:4});
+rect(1600,1110,1655,1215);
+rect(855,1245,1478,1318);
+rect(855,1318,1088,1490);
+rect(1237,1215,1478,1318);
+/* B 메인 / 사이트 / 보트하우스 */
+rect(285,1027,380,1330);
+rect(380,1278,440,1330,{ramp:['x',0,-1.2]});
+rect(440,1278,660,1330,{h:-1.2});
+rect(388,1328,660,1610,{h:-1.2});
+rect(390,1410,607,1606,{t:2,h:-1.2});
+rect(668,1213,785,1490);
+rect(668,1420,855,1490);
+rect(413,1600,582,1710,{h:-1.2});
+rect(378,985,388,1030);
+/* 높이: Rafters, Heaven, Hell */
+rect(425,320,490,470,{h:1.6});
+rect(425,470,490,555,{ramp:['y',1.6,0]});
+rect(645,320,762,405,{h:2.4});
+rect(585,320,645,405,{ramp:['x',0,2.4]});
+rect(645,405,752,468,{h:-1.2});
+rect(645,468,752,520,{ramp:['y',-1.2,0]});
+
+voidRect(455,1190,468,1202);voidRect(500,1190,565,1202);voidRect(597,1190,610,1202);
+voidRect(413,1602,451,1614);voidRect(533,1602,582,1614);
+
+var fl0B=fl0.slice(),HB=H.slice(),tintB=tint.slice();
+function validOp(op){
+  return op&&(op.k==='floor'||op.k==='wall'||op.k==='erase'||op.k==='height'||op.k==='open'||op.k==='lower')&&isFinite(op.x1)&&isFinite(op.y1)&&isFinite(op.x2)&&isFinite(op.y2);
+}
+
+LOPS=FINAL.layout.filter(validOp);
+function opHeight(op,i,j,i0,i1,j0,j1){
+  var hs=op.h||0;
+  if(!op.ramp)return hs;
+  var he=(op.h2===undefined?hs:op.h2),a;
+  if(op.ramp==='x+')a=(i-i0+0.5)/(i1-i0);
+  else if(op.ramp==='x-')a=1-(i-i0+0.5)/(i1-i0);
+  else if(op.ramp==='z+')a=(j-j0+0.5)/(j1-j0);
+  else a=1-(j-j0+0.5)/(j1-j0);
+  return hs+(he-hs)*a;
+}
+function openCells(i0,i1,j0,j1){
+  /* 영역 안의 비바닥 칸을 바닥으로 바꾸고, 높이는 가장 가까운 기존 바닥에서 이어 받는다 */
+  var T=[],hv={},q=[],n,k;
+  for(var j=j0;j<j1;j++)for(var i=i0;i<i1;i++){if(inb(i,j)&&!fl0[K(i,j)])T.push(K(i,j));}
+  var inT={};T.forEach(function(c){inT[c]=1;});
+  T.forEach(function(c){
+    var ci=c%NX,cj=(c/NX)|0;
+    for(var d=0;d<4;d++){
+      var ni=ci+DX[d],nj=cj+DY[d];if(!inb(ni,nj))continue;
+      var nk=K(ni,nj);
+      if(fl0[nk]&&!inT[nk]){hv[c]=H[nk];q.push(c);break;}
+    }
+  });
+  for(var h=0;h<q.length;h++){
+    var c2=q[h],ci2=c2%NX,cj2=(c2/NX)|0;
+    for(var d2=0;d2<4;d2++){
+      var ni2=ci2+DX[d2],nj2=cj2+DY[d2];if(!inb(ni2,nj2))continue;
+      var nk2=K(ni2,nj2);
+      if(inT[nk2]&&hv[nk2]===undefined){hv[nk2]=hv[c2];q.push(nk2);}
+    }
+  }
+  T.forEach(function(c){fl0[c]=1;force[c]=0;WH[c]=0;H[c]=hv[c]===undefined?0:hv[c];});
+}
+function applyOp(op){
+  var i0=Math.round((op.x1-X0)/CELL),i1=Math.round((op.x2-X0)/CELL),j0=Math.round((op.y1-Y0)/CELL),j1=Math.round((op.y2-Y0)/CELL);
+  if(i1<=i0||j1<=j0)return;
+  if(op.k==='open'){openCells(i0,i1,j0,j1);return;}
+  for(var j=j0;j<j1;j++)for(var i=i0;i<i1;i++){
+    if(!inb(i,j))continue;
+    var k=K(i,j);
+    if(op.k==='floor'){fl0[k]=1;force[k]=0;WH[k]=0;H[k]=opHeight(op,i,j,i0,i1,j0,j1);}
+    else if(op.k==='height'){if(fl0[k])H[k]=opHeight(op,i,j,i0,i1,j0,j1);}
+    else if(op.k==='wall'){fl0[k]=0;force[k]=1;WH[k]=op.wh||0;}
+    else if(op.k==='erase'){fl0[k]=0;force[k]=0;WH[k]=0;}
+    else if(op.k==='lower'){if(!fl0[k])WH[k]=op.wh||0;}
+  }
+}
+function applyLayout(){
+  fl0.set(fl0B);H.set(HB);tint.set(tintB);force.fill(0);WH.fill(0);
+  for(var n=0;n<LOPS.length;n++)applyOp(LOPS[n]);
+}
+/* ---------- 건물 덩어리 계산 ---------- */
+function computeKinds(){
+  var RB=7,dist=new Uint8Array(NX*NY).fill(255),q=[],kk,i,j;
+  for(kk=0;kk<kind.length;kk++)kind[kk]=fl0[kk]?1:0;
+  for(kk=0;kk<kind.length;kk++){if(kind[kk]===1){dist[kk]=0;q.push(kk);}}
+  for(var qh=0;qh<q.length;qh++){
+    var c=q[qh],d0=dist[c];if(d0>=RB)continue;
+    var ci=c%NX,cj=(c/NX)|0;
+    for(var dj=-1;dj<=1;dj++)for(var di=-1;di<=1;di++){
+      var ni=ci+di,nj=cj+dj;if(!inb(ni,nj))continue;
+      var nk=K(ni,nj);if(dist[nk]===255){dist[nk]=d0+1;q.push(nk);}
+    }
+  }
+  var ground=new Uint8Array(NX*NY),st=[];
+  function seed(i,j){var k=K(i,j);if(kind[k]===0&&dist[k]===255&&!ground[k]){ground[k]=1;st.push(k);}}
+  for(i=0;i<NX;i++){seed(i,0);seed(i,NY-1);}
+  for(j=0;j<NY;j++){seed(0,j);seed(NX-1,j);}
+  while(st.length){
+    var s=st.pop(),si=s%NX,sj=(s/NX)|0;
+    for(var d=0;d<4;d++){var ni=si+DX[d],nj=sj+DY[d];if(!inb(ni,nj))continue;var nk=K(ni,nj);if(kind[nk]===0&&dist[nk]===255&&!ground[nk]){ground[nk]=1;st.push(nk);}}
+  }
+  for(kk=0;kk<kind.length;kk++){if(kind[kk]===0&&!ground[kk])kind[kk]=2;}
+  for(kk=0;kk<kind.length;kk++){if(force[kk]&&kind[kk]!==1)kind[kk]=2;}
+}
+applyLayout();computeKinds();
+
+function roofH(i,j){var w=WH[K(i,j)];if(w>0)return w;return 7+h2((i/11)|0,(j/11)|0,1)*3.5;}
+function top(i,j){
+  if(!inb(i,j))return -1.6;
+  var k=K(i,j),kd=kind[k];
+  if(kd===1)return H[k];
+  if(kd===2)return roofH(i,j);
+  return -1.6;
+}
+function groundH(px,py){
+  var i=Math.floor((px-X0)/CELL),j=Math.floor((py-Y0)/CELL);
+  if(!inb(i,j))return 0;
+  return kind[K(i,j)]===1?H[K(i,j)]:0;
+}
+
+/* ---------- 팔레트 ---------- */
+var WALL_A=[0xecd08c,0xe8c47e,0xf0dba4,0xe6c88a].map(rgb);
+var WALL_B=[0xe3a788,0xd9937a,0xe8b79c,0xdc9c80].map(rgb);
+var WALL_M=[0xe7d1b0,0xdabf9c,0xcfbca8,0xe0c4a2,0xb7c3cc].map(rgb);
+var ROOFS=[0xb5532f,0xc4623a,0x9c4a30,0xd0794a,0xb8b0a2,0xa8503a].map(rgb);
+var STONE=rgb(0x8f8070),STONE_L=rgb(0xcfc1aa),EAVE=rgb(0x9c4a35);
+function wallColor(i,j){
+  var py=Y0+j*CELL,a=h2((i/11)|0,(j/11)|0,3);
+  var pal=py<700?WALL_A:(py>1200?WALL_B:WALL_M);
+  return pal[Math.floor(a*pal.length)%pal.length];
+}
+var FLOOR_BASE=rgb(0xbab3a8);
+var TINTS=[null,rgb(0xe6c653),rgb(0x6fcf86),rgb(0x7ea6e6),rgb(0xe67a6e)];
+var TINT_AMT=[0,0.5,0.5,0.3,0.28];
+
+
+/* ---------- 지오메트리 누적 ---------- */
+function G(){return {p:[],c:[],uv:[],i:[]};}
+function quad(g,A,B,C,D,ca,cb,cc,cd,uv){
+  var b=g.p.length/3;
+  g.p.push(A[0],A[1],A[2],B[0],B[1],B[2],C[0],C[1],C[2],D[0],D[1],D[2]);
+  g.c.push(ca[0],ca[1],ca[2],cb[0],cb[1],cb[2],cc[0],cc[1],cc[2],cd[0],cd[1],cd[2]);
+  g.uv.push(uv[0],uv[1],uv[2],uv[3],uv[4],uv[5],uv[6],uv[7]);
+  g.i.push(b,b+1,b+2,b,b+2,b+3);
+}
+function flat(g,x0,z0,x1,z1,y,col){
+  quad(g,[x0,y,z0],[x0,y,z1],[x1,y,z1],[x1,y,z0],col,col,col,col,
+    [x0*.35,z0*.35,x0*.35,z1*.35,x1*.35,z1*.35,x1*.35,z0*.35]);
+}
+/* dir 0:E(+x) 1:W(-x) 2:S(+z) 3:N(-z) */
+function wallQuad(g,dir,pl,a0,a1,yb,yt,cb,ct){
+  var A,B,C,D,k=0.3;
+  if(dir===0){A=[pl,yb,a1];B=[pl,yb,a0];C=[pl,yt,a0];D=[pl,yt,a1];}
+  else if(dir===1){A=[pl,yb,a0];B=[pl,yb,a1];C=[pl,yt,a1];D=[pl,yt,a0];}
+  else if(dir===2){A=[a0,yb,pl];B=[a1,yb,pl];C=[a1,yt,pl];D=[a0,yt,pl];}
+  else {A=[a1,yb,pl];B=[a0,yb,pl];C=[a0,yt,pl];D=[a1,yt,pl];}
+  var u=function(V){return (dir<2?V[2]:V[0])*k;};
+  quad(g,A,B,C,D,cb,cb,ct,ct,[u(A),A[1]*k,u(B),B[1]*k,u(C),C[1]*k,u(D),D[1]*k]);
+}
+function toGeo(g){
+  var geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(g.p,3));
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(g.c,3));
+  geo.setAttribute('uv',new THREE.Float32BufferAttribute(g.uv,2));
+  geo.setIndex(g.i);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+var gF,gW,gR,gD,wf;
+function buildGeoms(){
+var i,j;
+gF=G();gW=G();gR=G();gD=G();
+wf=[new Uint8Array(NX*NY),new Uint8Array(NX*NY),new Uint8Array(NX*NY),new Uint8Array(NX*NY)];
+var N=NX*NY,fK=new Array(N),rK=new Array(N),wK=[new Array(N),new Array(N),new Array(N),new Array(N)],REC={};
+function ck(v,col){return v.toFixed(3)+'|'+col[0].toFixed(3)+','+col[1].toFixed(3)+','+col[2].toFixed(3);}
+for(j=0;j<NY;j++)for(i=0;i<NX;i++){
+  var k=K(i,j),kd=kind[k];if(!kd)continue;
+  var tA=top(i,j),nzF=0.94+h2((i/6)|0,(j/6)|0,5)*0.1,nzR=0.94+h2((i/9)|0,(j/9)|0,5)*0.1,nz=(kd===1)?nzF:nzR;
+  if(kd===1){
+    var fc=mul(FLOOR_BASE,nz),tn=tint[k];
+    if(tn)fc=mix(fc,TINTS[tn],TINT_AMT[tn]);
+    var kf='F'+ck(tA,fc);REC[kf]={y:tA,col:fc};fK[k]=kf;
+  }else{
+    var rc=ROOFS[Math.floor(h2((i/9)|0,(j/9)|0,2)*ROOFS.length)%ROOFS.length],rcol=mul(rc,nz);
+    var kr='R'+ck(tA,rcol);REC[kr]={y:tA,col:rcol};rK[k]=kr;
+  }
+  for(var d=0;d<4;d++){
+    var ni=i+DX[d],nj=j+DY[d],tB=top(ni,nj);
+    if(tA<=tB+0.03)continue;
+    if(kd===1){
+      var rcw=mul(STONE_L,nz),kw='W1'+d+'|'+tA.toFixed(3)+'|'+tB.toFixed(3)+'|'+rcw[0].toFixed(3);
+      REC[kw]={kd:1,tA:tA,tB:tB,rcw:rcw};wK[d][k]=kw;
+    }else{
+      var base=mul(wallColor(i,j),nz),kw2='W2'+d+'|'+tA.toFixed(3)+'|'+tB.toFixed(3)+'|'+base[0].toFixed(3)+','+base[1].toFixed(3)+','+base[2].toFixed(3);
+      REC[kw2]={kd:2,tA:tA,tB:tB,base:base};wK[d][k]=kw2;
+      if(kind[inb(ni,nj)?K(ni,nj):0]===1&&inb(ni,nj)&&tA-tB>=4.2)wf[d][k]=1;
+    }
+  }
+}
+/* 바닥/지붕: 같은 높이·색 칸을 큰 사각형으로 합침 */
+function greedy(keys,g){
+  var done=new Uint8Array(N),a,b,w,h,kk,ok,r;
+  for(b=0;b<NY;b++)for(a=0;a<NX;a++){
+    var k0=K(a,b),key=keys[k0];if(!key||done[k0])continue;
+    w=1;while(a+w<NX&&keys[K(a+w,b)]===key&&!done[K(a+w,b)])w++;
+    h=1;ok=true;
+    while(b+h<NY&&ok){for(kk=0;kk<w;kk++){var q=K(a+kk,b+h);if(keys[q]!==key||done[q]){ok=false;break;}}if(ok)h++;}
+    for(var jj=0;jj<h;jj++)for(kk=0;kk<w;kk++)done[K(a+kk,b+jj)]=1;
+    r=REC[key];
+    flat(g,WX(X0+a*CELL),WZ(Y0+b*CELL),WX(X0+(a+w)*CELL),WZ(Y0+(b+h)*CELL),r.y,r.col);
+  }
+}
+greedy(fK,gF);greedy(rK,gR);
+/* 벽: 같은 면을 따라 이어진 칸을 한 장으로 합침 */
+function emitWall(d,pl,a0,a1,r){
+  if(r.kd===1){wallQuad(gW,d,pl,a0,a1,r.tB,r.tA,mul(r.rcw,0.82),r.rcw);return;}
+  var yb=r.tB,yt=r.tA,pb=Math.min(yb+0.55,yt),et=Math.max(yt-0.45,pb),base=r.base;
+  wallQuad(gW,d,pl,a0,a1,yb,pb,mul(STONE,0.8),mul(STONE,1));
+  wallQuad(gW,d,pl,a0,a1,pb,et,mul(base,0.8),mul(base,1));
+  wallQuad(gW,d,pl,a0,a1,et,yt,mul(EAVE,1),mul(EAVE,1.12));
+}
+for(var d2=0;d2<4;d2++){
+  var alongJ=d2<2,outer=alongJ?NX:NY,inner=alongJ?NY:NX,o2,n2;
+  for(o2=0;o2<outer;o2++){
+    var runKey=null,runS=0;
+    for(n2=0;n2<=inner;n2++){
+      var ii=alongJ?o2:n2,jj2=alongJ?n2:o2,key2=n2<inner?wK[d2][K(ii,jj2)]:null;
+      if(key2!==runKey){
+        if(runKey){
+          var r2=REC[runKey],pl,a0,a1;
+          if(alongJ){pl=d2===0?WX(X0+(o2+1)*CELL):WX(X0+o2*CELL);a0=WZ(Y0+runS*CELL);a1=WZ(Y0+n2*CELL);}
+          else{pl=d2===2?WZ(Y0+(o2+1)*CELL):WZ(Y0+o2*CELL);a0=WX(X0+runS*CELL);a1=WX(X0+n2*CELL);}
+          emitWall(d2,pl,a0,a1,r2);
+        }
+        runKey=key2||null;runS=n2;
+      }
+    }
+  }
+}
+for(var dd=0;dd<4;dd++)decoRuns(dd);
+}
+/* 창문, 문틀, 덧문 */
+var WIN_LO=rgb(0x232a38),WIN_HI=rgb(0x4d6178),TRIM=rgb(0xf1e6cf),DOORC=rgb(0x3a2a22);
+var SHUT=[rgb(0x3c7a6b),rgb(0x8a4a2a),rgb(0x4a6b8f),rgb(0x6e7a3a)];
+function decoRuns(d){
+  var alongI=d>=2,outer=alongI?NY:NX,inner=alongI?NX:NY;
+  for(var a=0;a<outer;a++){
+    var s=-1;
+    for(var b=0;b<=inner;b++){
+      var ii=alongI?b:a,jj=alongI?a:b;
+      var on=b<inner&&wf[d][K(ii,jj)];
+      if(on&&s<0)s=b;
+      if(!on&&s>=0){
+        var e=b;
+        for(var c=s+3;c+3<=e;c+=7){
+          var hh=h2(alongI?c:a,alongI?a:c,d+9);
+          if(hh>0.72)continue;
+          var si=alongI?c:a,sj=alongI?a:c;
+          var wi=si+DX[d],wj=sj+DY[d];
+          var fh=inb(wi,wj)&&kind[K(wi,wj)]===1?H[K(wi,wj)]:0;
+          var solidTop=roofH(si,sj);
+          var plane=d===0?WX(X0+(si+1)*CELL):(d===1?WX(X0+si*CELL):(d===2?WZ(Y0+(sj+1)*CELL):WZ(Y0+sj*CELL)));
+          var off=(d===0||d===2)?0.03:-0.03;
+          var ctr=alongI?WX(X0+(c+1.5)*CELL):WZ(Y0+(c+1.5)*CELL);
+          if(hh<0.5){
+            var rows=solidTop-fh>=8.2?[2.1,5.4]:[2.1];
+            for(var r=0;r<rows.length;r++){
+              var y0=fh+rows[r],y1=y0+1.6;
+              wallQuad(gD,d,plane+off,ctr-0.62,ctr+0.62,y0-0.12,y1+0.12,TRIM,TRIM);
+              wallQuad(gD,d,plane+off*1.6,ctr-0.46,ctr+0.46,y0,y1,WIN_LO,WIN_HI);
+              var sc=SHUT[Math.floor(h2(si,sj+r,7)*SHUT.length)%SHUT.length];
+              wallQuad(gD,d,plane+off*1.6,ctr-0.98,ctr-0.64,y0,y1,mul(sc,.8),sc);
+              wallQuad(gD,d,plane+off*1.6,ctr+0.64,ctr+0.98,y0,y1,mul(sc,.8),sc);
+            }
+          }else{
+            wallQuad(gD,d,plane+off,ctr-0.75,ctr+0.75,fh,fh+2.7,TRIM,TRIM);
+            wallQuad(gD,d,plane+off*1.6,ctr-0.58,ctr+0.58,fh,fh+2.5,mul(DOORC,.8),DOORC);
+          }
+        }
+        s=-1;
+      }
+    }
+  }
+}
+
+
+function canvasTex(size,draw,rep){
+  var cv=document.createElement('canvas');cv.width=cv.height=size;
+  draw(cv.getContext('2d'),size);
+  var t=new THREE.CanvasTexture(cv);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  t.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+function g8(v){return 'rgb('+v+','+v+','+v+')';}
+var texCobble=canvasTex(256,function(c,n){
+  c.fillStyle=g8(150);c.fillRect(0,0,n,n);
+  var rows=8,rh=n/rows;
+  for(var r=0;r<rows;r++){
+    var cols=r%2?7:8,cw=n/cols,off=r%2?cw/2:0;
+    for(var cI=-1;cI<cols+1;cI++){
+      var v=205+Math.floor(Math.random()*45);
+      c.fillStyle=g8(v);
+      c.fillRect(cI*cw+off+2,r*rh+2,cw-4,rh-4);
+    }
+  }
+},1);
+var texStucco=canvasTex(256,function(c,n){
+  c.fillStyle=g8(236);c.fillRect(0,0,n,n);
+  for(var t=0;t<2600;t++){var v=210+Math.floor(Math.random()*40);c.fillStyle='rgba('+v+','+v+','+v+',.45)';c.fillRect(Math.random()*n,Math.random()*n,2+Math.random()*5,2+Math.random()*3);}
+  for(var s=0;s<14;s++){c.fillStyle='rgba(120,100,80,.05)';c.fillRect(0,Math.random()*n,n,2+Math.random()*10);}
+},1);
+var texRoof=canvasTex(256,function(c,n){
+  c.fillStyle=g8(225);c.fillRect(0,0,n,n);
+  var rows=16,rh=n/rows;
+  for(var r=0;r<rows;r++){
+    c.fillStyle='rgba(60,30,20,.35)';c.fillRect(0,r*rh,n,2);
+    for(var x=(r%2)*8;x<n;x+=16){c.fillStyle='rgba(60,30,20,.2)';c.fillRect(x,r*rh,1.5,rh);}
+  }
+},1);
+var texWood=canvasTex(128,function(c,n){
+  c.fillStyle='#b88a52';c.fillRect(0,0,n,n);
+  for(var p=0;p<8;p++){c.fillStyle='rgba(60,35,10,'+(0.08+Math.random()*0.12)+')';c.fillRect(0,p*16,n,7);c.fillStyle='rgba(40,25,5,.5)';c.fillRect(0,p*16,n,1.5);}
+  c.strokeStyle='#6d4a22';c.lineWidth=10;c.strokeRect(5,5,n-10,n-10);
+  c.lineWidth=7;c.beginPath();c.moveTo(8,8);c.lineTo(n-8,n-8);c.moveTo(n-8,8);c.lineTo(8,n-8);c.stroke();
+},1);
+
+
+var matCache={};
+function lam(color,extra){var key=color+(extra?JSON.stringify(extra):'');if(!matCache[key])matCache[key]=new THREE.MeshLambertMaterial(Object.assign({color:color},extra||{}));return matCache[key];}
+function tm(color,map){var key='t'+color+'|'+(map?map.uuid:'');if(!matCache[key])matCache[key]=new THREE.MeshLambertMaterial({color:color,map:map||null});return matCache[key];}
+var woodMat=new THREE.MeshLambertMaterial({map:texWood});
+function shadowAll(g){g.traverse(function(m){if(m.isMesh){m.castShadow=!m.userData.noShadow;m.receiveShadow=true;}});return g;}
+function mesh(geo,mat,x,y,z){var m=new THREE.Mesh(geo,mat);m.position.set(x||0,y||0,z||0);return m;}
+
+var TYPES={
+  crate:{n:'상자',p:{w:1.6,h:1.6,d:1.6},ed:['w','h','d']},
+  wall:{n:'벽',p:{w:4,h:3.5,d:0.5,c:0xdcc09a},ed:['w','h','d','c']},
+  house:{n:'집',p:{w:5,h:3.1,d:4.2,c:0xdcc09a,rc:0xb5532f},ed:['w','h','d','c','rc']},
+  tree:{n:'나무',p:{s:1},ed:['s']},
+  bush:{n:'수풀',p:{s:1},ed:['s']},
+  platform:{n:'단상',p:{w:4,h:0.8,d:4,c:0x9a8c7a},ed:['w','h','d','c']},
+  stairs:{n:'계단',p:{w:3,h:1.6,d:4,c:0xb9ac98},ed:['w','h','d','c']},
+  pillar:{n:'기둥',p:{r:1.2,h:3.2,c:0xd6c4a6},ed:['r','h','c']},
+  barrel:{n:'통',p:{r:0.5,h:1.0,c:0x7b5a35},ed:['r','h','c']},
+  door:{n:'문',p:{w:2.6,h:4.4,d:0.35},ed:['w','h']},
+  window:{n:'창문',p:{w:3.2,h:3.2,d:0.4,c:0xdcc09a,ww:1.6,wh:1.4,sl:1.0},ed:['w','h','d','ww','wh','sl','c']},
+  glasswall:{n:'유리벽',p:{w:4,h:3.5,d:0.12,c:0xb9e3f5},ed:['w','h','d','c']},
+  ultorb:{n:'궁 포인트',p:{s:1},ed:['s']},
+  ceiling:{n:'언더 천장',p:{w:8,h:0.5,d:5,c:0x8a6a44},ed:['w','h','d','c']},
+  lamp:{n:'불빛',p:{s:1},ed:['s']},
+  beacon:{n:'입구 표시(화살표)',p:{s:1},ed:['s']},
+  switch:{n:'스위치',p:{s:1},ed:['s']},
+  boat:{n:'보트',p:{s:1},ed:['s']},
+  generator:{n:'발전기',p:{s:1},ed:['s']},
+  fountain:{n:'분수대',p:{s:1},ed:['s']},
+  deck:{n:'낚시 데크',p:{s:1},ed:['s']}
+};
+var SCALED={ultorb:1,lamp:1,beacon:1,tree:1,bush:1,boat:1,generator:1,fountain:1,deck:1,switch:1};
+var OBJS=[],objById={},rootOf={},colOf={},COL=[],nextId=1,uidSeq=0;
+var DPAL=[0xe08a2e,0x3fa7e0,0x4cc46a,0xd8504a,0xb06be0,0xe0d040,0x40d0c0,0xe07aa8];
+function doorColor(d){return DPAL[(((d.uid||1)-1)%DPAL.length+DPAL.length)%DPAL.length];}
+function doorByUid(u){if(!(u>0))return null;for(var i=0;i<OBJS.length;i++){if(OBJS[i].t==='door'&&OBJS[i].uid===u)return OBJS[i];}return null;}
+function hasSwitch(d){return OBJS.some(function(s){return s.t==='switch'&&s.link===d.uid;});}
+
+function gridH(wx,wz){
+  var px=PXof(wx),py=PYof(wz),i=Math.floor((px-X0)/CELL),j=Math.floor((py-Y0)/CELL);
+  if(!inb(i,j)||kind[K(i,j)]!==1)return null;
+  return H[K(i,j)];
+}
+function doorFloor(o){
+  var c=Math.cos(o.ry||0),s=Math.sin(o.ry||0),best=null;
+  var pts=[[0,0],[o.w*0.45,0],[-o.w*0.45,0],[0,o.d/2+0.7],[0,-o.d/2-0.7]];
+  for(var i=0;i<pts.length;i++){
+    var lx=pts[i][0],lz=pts[i][1];
+    var g=gridH(o.x+lx*c+lz*s,o.z-lx*s+lz*c);
+    if(i===0&&g!==null)return g;
+    if(g!==null&&(best===null||g<best))best=g;
+  }
+  return best;
+}
+function baseY(o){var g=o.t==='door'?doorFloor(o):gridH(o.x,o.z);return (g===null?0:g)+(o.lift||0);}
+
+function nosh(m){m.userData.noShadow=true;return m;}
+function buildMesh(o){
+  var g=new THREE.Group(),t=o.t,i,m;
+  if(t==='crate'){g.add(mesh(new THREE.BoxGeometry(o.w,o.h,o.d),woodMat,0,o.h/2,0));}
+  else if(t==='wall'){
+    var ph=Math.min(0.5,o.h);
+    g.add(mesh(new THREE.BoxGeometry(o.w,o.h,o.d),tm(o.c,texStucco),0,o.h/2,0));
+    g.add(mesh(new THREE.BoxGeometry(o.w+0.08,ph,o.d+0.08),tm(0x8f8070),0,ph/2,0));
+    g.add(mesh(new THREE.BoxGeometry(o.w+0.14,0.16,o.d+0.14),tm(0x9c4a35),0,o.h+0.08,0));
+  }else if(t==='house'){
+    var bw=o.w,bd=o.d,bh=o.h;
+    g.add(mesh(new THREE.BoxGeometry(bw,bh,bd),tm(o.c,texStucco),0,bh/2,0));
+    g.add(mesh(new THREE.BoxGeometry(bw+0.12,0.5,bd+0.12),lam(0x8f8070),0,0.25,0));
+    var sh=new THREE.Shape();sh.moveTo(-(bd/2+0.4),0);sh.lineTo(bd/2+0.4,0);sh.lineTo(0,Math.max(0.8,bd*0.4));sh.lineTo(-(bd/2+0.4),0);
+    var rg=new THREE.ExtrudeGeometry(sh,{depth:bw+0.7,bevelEnabled:false});
+    rg.rotateY(Math.PI/2);rg.translate(-(bw+0.7)/2,0,0);
+    g.add(mesh(rg,tm(o.rc,texRoof),0,bh,0));
+    g.add(mesh(new THREE.BoxGeometry(1.1,Math.min(2.1,bh-0.3),0.1),lam(0x4a3326),-bw*0.18,Math.min(2.1,bh-0.3)/2,bd/2+0.02));
+    g.add(mesh(new THREE.BoxGeometry(1.0,0.9,0.1),lam(0x2f3b4d),bw*0.22,Math.min(1.8,bh*0.6),bd/2+0.02));
+    var w2=mesh(new THREE.BoxGeometry(1.0,0.9,0.1),lam(0x2f3b4d),bw/2+0.02,Math.min(1.8,bh*0.6),0);w2.rotation.y=Math.PI/2;g.add(w2);
+  }else if(t==='platform'){
+    g.add(mesh(new THREE.BoxGeometry(o.w,o.h,o.d),tm(o.c,texCobble),0,o.h/2,0));
+  }else if(t==='stairs'){
+    var n=Math.max(3,Math.round(o.h/0.2)),sd=o.d/n;
+    for(i=0;i<n;i++){var sh2=o.h*(i+1)/n;g.add(mesh(new THREE.BoxGeometry(o.w,sh2,sd),tm(o.c,texCobble),0,sh2/2,-o.d/2+(i+0.5)*sd));}
+  }else if(t==='pillar'){
+    g.add(mesh(new THREE.CylinderGeometry(o.r,o.r*1.12,o.h,8),tm(o.c),0,o.h/2,0));
+    g.add(mesh(new THREE.CylinderGeometry(o.r*1.25,o.r*1.25,0.3,8),lam(0x9c4a35),0,o.h+0.15,0));
+  }else if(t==='barrel'){
+    g.add(mesh(new THREE.CylinderGeometry(o.r,o.r*0.92,o.h,14),tm(o.c),0,o.h/2,0));
+    [0.25,0.75].forEach(function(f){g.add(mesh(new THREE.CylinderGeometry(o.r*1.03,o.r*1.03,0.07,14),lam(0x33291f),0,o.h*f,0));});
+  }else if(t==='window'){
+    var ww=Math.max(0.2,Math.min(o.ww,o.w-0.4)),wh=Math.max(0.2,Math.min(o.wh,o.h-0.4)),sl=Math.max(0,Math.min(o.sl,o.h-wh-0.2));
+    var wm=tm(o.c,texStucco),sideW=(o.w-ww)/2,topH=o.h-sl-wh,trimM=lam(0xf1e6cf);
+    if(sl>0.01)g.add(mesh(new THREE.BoxGeometry(o.w,sl,o.d),wm,0,sl/2,0));
+    g.add(mesh(new THREE.BoxGeometry(o.w,topH,o.d),wm,0,sl+wh+topH/2,0));
+    [-1,1].forEach(function(sg){g.add(mesh(new THREE.BoxGeometry(sideW,wh,o.d),wm,sg*(ww/2+sideW/2),sl+wh/2,0));});
+    g.add(mesh(new THREE.BoxGeometry(ww+0.16,0.08,o.d+0.06),trimM,0,sl,0));
+    g.add(mesh(new THREE.BoxGeometry(ww+0.16,0.08,o.d+0.06),trimM,0,sl+wh,0));
+    [-1,1].forEach(function(sg){g.add(mesh(new THREE.BoxGeometry(0.08,wh,o.d+0.06),trimM,sg*ww/2,sl+wh/2,0));});
+    if(sl>0.01)g.add(mesh(new THREE.BoxGeometry(ww+0.5,0.08,o.d+0.3),lam(0xcdbfa8),0,sl-0.04,0));
+    var gm=new THREE.MeshPhongMaterial({color:0xb9e3f5,specular:0xffffff,shininess:140,transparent:true,opacity:0.3,side:THREE.DoubleSide,depthWrite:false});
+    var glass=mesh(new THREE.BoxGeometry(ww,wh,0.04),gm,0,sl+wh/2,0);glass.userData.noShadow=true;glass.renderOrder=2;g.add(glass);
+    var fm=lam(0x4a3b2c),nc=Math.max(1,Math.round(ww/0.8)),nr=Math.max(1,Math.round(wh/0.7)),qq;
+    for(qq=1;qq<nc;qq++){m=mesh(new THREE.BoxGeometry(0.035,wh,0.07),fm,-ww/2+qq*ww/nc,sl+wh/2,0);m.userData.noShadow=true;g.add(m);}
+    for(qq=1;qq<nr;qq++){m=mesh(new THREE.BoxGeometry(ww,0.035,0.07),fm,0,sl+qq*wh/nr,0);m.userData.noShadow=true;g.add(m);}
+    [-0.18,0.12].forEach(function(fx,ix){var hl=mesh(new THREE.PlaneGeometry(ww*(ix?0.04:0.07),wh*0.55),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.3,side:THREE.DoubleSide,depthWrite:false}),fx*ww,sl+wh/2,0.03);hl.rotation.z=0.45;hl.userData.noShadow=true;hl.renderOrder=3;g.add(hl);});
+  }else if(t==='glasswall'){
+    var gwm=new THREE.MeshPhongMaterial({color:o.c,specular:0xffffff,shininess:150,transparent:true,opacity:0.28,side:THREE.DoubleSide,depthWrite:false});
+    var gwl=mesh(new THREE.BoxGeometry(o.w,o.h,o.d),gwm,0,o.h/2,0);gwl.userData.noShadow=true;gwl.renderOrder=2;g.add(gwl);
+    var gfr=lam(0x3b4650),gfd=Math.max(o.d+0.06,0.16),gk;
+    g.add(nosh(mesh(new THREE.BoxGeometry(o.w,0.14,gfd),gfr,0,0.07,0)));
+    g.add(nosh(mesh(new THREE.BoxGeometry(o.w,0.14,gfd),gfr,0,o.h-0.07,0)));
+    [-1,1].forEach(function(sg){g.add(nosh(mesh(new THREE.BoxGeometry(0.1,o.h,gfd),gfr,sg*(o.w/2-0.05),o.h/2,0)));});
+    var gn=Math.max(1,Math.round(o.w/2));
+    for(gk=1;gk<gn;gk++)g.add(nosh(mesh(new THREE.BoxGeometry(0.05,o.h,gfd),gfr,-o.w/2+gk*o.w/gn,o.h/2,0)));
+    [[-0.2,0.07],[0.1,0.04]].forEach(function(sh){var hl=mesh(new THREE.PlaneGeometry(o.w*sh[1],o.h*0.45),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.3,side:THREE.DoubleSide,depthWrite:false}),sh[0]*o.w,o.h*0.55,o.d/2+0.01);hl.rotation.z=0.45;hl.userData.noShadow=true;hl.renderOrder=3;g.add(hl);});
+  }else if(t==='switch'){
+    var ld=doorByUid(o.link),scol=ld?doorColor(ld):0x888888;
+    g.add(mesh(new THREE.BoxGeometry(0.5,0.12,0.5),lam(0x3b3f45),0,0.06,0));
+    g.add(mesh(new THREE.BoxGeometry(0.22,1.0,0.22),lam(0x59616b),0,0.62,0));
+    g.add(mesh(new THREE.BoxGeometry(0.5,0.34,0.3),lam(0x2e3338),0,1.3,0));
+    g.add(mesh(new THREE.BoxGeometry(0.52,0.06,0.32),lam(scol),0,1.12,0));
+    g.add(mesh(new THREE.CylinderGeometry(0.1,0.1,0.08,12),lam(scol),0,1.51,0));
+    var lamp=mesh(new THREE.SphereGeometry(0.07,10,8),new THREE.MeshLambertMaterial({color:0x888888}),0,1.3,0.16);
+    g.add(lamp);g.userData.lamp=lamp;
+  }else if(t==='door'){
+    var inner=new THREE.Group();
+    inner.add(mesh(new THREE.BoxGeometry(o.w,o.h,o.d),lam(0x56626e),0,o.h/2,0));
+    var sw=o.w*0.96;
+    var dcol=doorColor(o);
+    inner.add(mesh(new THREE.BoxGeometry(sw,0.5,o.d+0.06),lam(dcol),0,o.h*0.77,0));
+    inner.add(mesh(new THREE.BoxGeometry(sw,0.5,o.d+0.06),lam(dcol),0,o.h*0.27,0));
+    g.add(inner);g.userData.inner=inner;
+    /* 문틀: 바닥에 고정되는 문턱과 양쪽 기둥 */
+    g.add(mesh(new THREE.BoxGeometry(o.w+0.36,0.08,o.d+0.14),lam(0x3a2a22),0,0.04,0));
+    [-1,1].forEach(function(sg){g.add(mesh(new THREE.BoxGeometry(0.18,o.h+0.1,o.d+0.1),lam(0x3a2a22),sg*(o.w/2+0.09),(o.h+0.1)/2,0));});
+  }else if(t==='tree'){
+    g.add(mesh(new THREE.CylinderGeometry(0.22,0.38,3.4,8),lam(0x6b4a2e),0,1.7,0));
+    var cols=[0x4c7d3a,0x5e9444,0x3f6e34];
+    for(i=0;i<4;i++){g.add(mesh(new THREE.IcosahedronGeometry(1.8-i*0.2,1),lam(cols[i%3]),Math.sin(i*2.1)*1.0,3.6+i*0.8,Math.cos(i*2.1)*1.0));}
+  }else if(t==='bush'){
+    m=mesh(new THREE.IcosahedronGeometry(0.9,1),lam(0x5a9246),0,0.6,0);m.scale.y=0.8;g.add(m);
+  }else if(t==='ultorb'){
+    var sp=new THREE.Group();sp.position.y=1.1;
+    sp.add(nosh(mesh(new THREE.OctahedronGeometry(0.34,0),new THREE.MeshBasicMaterial({color:0xffd84a}))));
+    sp.add(nosh(mesh(new THREE.SphereGeometry(0.62,14,10),new THREE.MeshBasicMaterial({color:0xffe27a,transparent:true,opacity:0.22,depthWrite:false}))));
+    m=nosh(mesh(new THREE.TorusGeometry(0.52,0.035,8,28),new THREE.MeshBasicMaterial({color:0x6ff0ff})));sp.add(m);
+    m=nosh(mesh(new THREE.TorusGeometry(0.52,0.035,8,28),new THREE.MeshBasicMaterial({color:0x6ff0ff})));m.rotation.y=Math.PI/2;sp.add(m);
+    g.add(sp);g.userData.spin=sp;
+  }else if(t==='lamp'){
+    g.add(nosh(mesh(new THREE.SphereGeometry(0.16,10,8),new THREE.MeshBasicMaterial({color:0xffe0a0}),0,1.6,0)));
+    g.add(nosh(mesh(new THREE.CylinderGeometry(0.015,0.015,1.4,6),new THREE.MeshBasicMaterial({color:0x2a2018}),0,2.3,0)));
+    var pl=new THREE.PointLight(0xffd9a0,1.1,12);pl.position.set(0,1.6,0);g.add(pl);
+  }else if(t==='beacon'){
+    var ar=new THREE.Group();ar.position.y=3.4;
+    m=nosh(mesh(new THREE.ConeGeometry(0.55,1.0,4),new THREE.MeshBasicMaterial({color:0xff5a4d})));m.rotation.x=Math.PI;ar.add(m);
+    ar.add(nosh(mesh(new THREE.BoxGeometry(0.22,0.8,0.22),new THREE.MeshBasicMaterial({color:0xff5a4d}),0,0.85,0)));
+    g.add(ar);g.userData.bob=ar;
+    g.add(nosh(mesh(new THREE.CylinderGeometry(0.7,0.7,5,16,1,true),new THREE.MeshBasicMaterial({color:0xff8a5a,transparent:true,opacity:0.18,depthWrite:false,side:THREE.DoubleSide}),0,2.5,0)));
+    m=nosh(mesh(new THREE.RingGeometry(0.55,0.75,24),new THREE.MeshBasicMaterial({color:0xff8a5a,transparent:true,opacity:0.6,side:THREE.DoubleSide,depthWrite:false}),0,0.05,0));m.rotation.x=-Math.PI/2;g.add(m);
+  }else if(t==='ceiling'){
+    var cms=[],cm2=function(col,map){var mt=new THREE.MeshLambertMaterial({color:col,map:map||null,transparent:true,opacity:1});cms.push(mt);return mt;};
+    g.add(mesh(new THREE.BoxGeometry(o.w,o.h,o.d),cm2(o.c,texWood),0,o.h/2,0));
+    var nb=Math.max(2,Math.round(o.w/1.6));
+    for(i=0;i<=nb;i++)g.add(mesh(new THREE.BoxGeometry(0.2,0.3,o.d),cm2(0x4a3822),-o.w/2+i*o.w/nb,-0.15,0));
+    g.userData.ceilMats=cms;
+  }else if(t==='boat'){
+    var hull=mesh(new THREE.SphereGeometry(1,28,14,0,Math.PI*2,0,Math.PI/2),new THREE.MeshLambertMaterial({color:0xe6e0d0,side:THREE.DoubleSide}),0,0.95,0);
+    hull.scale.set(5.6,1.15,1.55);hull.rotation.x=Math.PI;g.add(hull);
+    g.add(mesh(new THREE.BoxGeometry(2.2,1.1,1.2),lam(0xcbb99a),0.8,1.6,0));
+    g.add(mesh(new THREE.CylinderGeometry(0.06,0.08,3.2,6),lam(0x5a4430),-1.8,2.6,0));
+    [-2.6,2.2].forEach(function(x){g.add(mesh(new THREE.BoxGeometry(0.5,0.9,2.2),lam(0x6d5640),x,0.45,0));});
+  }else if(t==='generator'){
+    g.add(mesh(new THREE.BoxGeometry(2.4,1.5,1.4),lam(0x5d7a8c),0,0.75,0));
+    g.add(mesh(new THREE.CylinderGeometry(0.55,0.55,1.6,14),lam(0xb8742f),1.6,0.8,0));
+    g.add(mesh(new THREE.CylinderGeometry(0.08,0.08,3,6),lam(0x444c55),-0.6,2.2,0.4));
+    g.add(mesh(new THREE.BoxGeometry(0.5,0.12,0.12),lam(0xffcf4a),0,1.56,0.72));
+  }else if(t==='fountain'){
+    g.add(mesh(new THREE.CylinderGeometry(1.7,1.9,0.8,20,1,true),new THREE.MeshLambertMaterial({color:0xbfae98,side:THREE.DoubleSide}),0,0.4,0));
+    m=mesh(new THREE.TorusGeometry(1.8,0.16,8,24),lam(0xcdbfa8),0,0.8,0);m.rotation.x=Math.PI/2;g.add(m);
+    m=mesh(new THREE.CircleGeometry(1.7,24),lam(0x4e8fb8),0,0.55,0);m.rotation.x=-Math.PI/2;g.add(m);
+    g.add(mesh(new THREE.CylinderGeometry(0.2,0.3,1.8,10),lam(0xcdbfa8),0,0.9,0));
+  }else if(t==='deck'){
+    g.add(mesh(new THREE.BoxGeometry(6.4,0.5,3.4),lam(0x8a6a44),0,0.25,0));
+    for(i=-2;i<=2;i++)g.add(mesh(new THREE.BoxGeometry(0.04,0.02,3.38),lam(0x4f3a22),i*1.2,0.51,0));
+    [[-3.0,-1.5],[3.0,-1.5],[-3.0,1.5],[3.0,1.5]].forEach(function(c){g.add(mesh(new THREE.CylinderGeometry(0.1,0.12,1.2,6),lam(0x5a4430),c[0],1.1,c[1]));});
+    g.add(mesh(new THREE.BoxGeometry(6.0,0.08,0.08),lam(0x5a4430),0,1.5,-1.5));
+    m=mesh(new THREE.CylinderGeometry(0.025,0.04,3.4,6),lam(0x3a2a1a),-0.8,1.9,-0.4);m.rotation.z=-0.9;m.rotation.x=0.3;g.add(m);
+    g.add(mesh(new THREE.CylinderGeometry(0.006,0.006,2.4,4),lam(0xdddddd),0.55,1.4,-0.95));
+    g.add(mesh(new THREE.CylinderGeometry(0.34,0.26,0.5,12),lam(0x3f6c8c),1.8,0.75,0.5));
+    g.add(mesh(new THREE.CylinderGeometry(0.3,0.3,0.5,10),lam(0x6d5640),-0.6,0.75,0.5));
+    m=mesh(new THREE.SphereGeometry(0.28,10,8),lam(0x9fb7c8),1.5,0.58,1.0);m.scale.set(1.6,0.5,0.6);g.add(m);
+    g.add(mesh(new THREE.BoxGeometry(0.22,0.3,0.22),lam(0xffcf4a),3.0,1.9,1.5));
+  }
+  if(SCALED[t])g.scale.setScalar(o.s||1);
+  return shadowAll(g);
+}
+
+
+/* ======== 렌더 메시 ======== */
+buildGeoms();
+var floorMat=new THREE.MeshLambertMaterial({vertexColors:true,map:texCobble});
+var wallMat=new THREE.MeshLambertMaterial({vertexColors:true,map:texStucco,side:THREE.DoubleSide});
+var roofMat=new THREE.MeshLambertMaterial({vertexColors:true,map:texRoof});
+var decoMat=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide});
+var floorMesh=new THREE.Mesh(toGeo(gF),floorMat);floorMesh.receiveShadow=true;
+var wallMesh=new THREE.Mesh(toGeo(gW),wallMat);wallMesh.receiveShadow=true;wallMesh.castShadow=true;
+var roofMesh=new THREE.Mesh(toGeo(gR),roofMat);roofMesh.receiveShadow=true;roofMesh.castShadow=true;
+var decoMesh=new THREE.Mesh(toGeo(gD),decoMat);
+gF=gW=gR=gD=null;
+/* 원본 맵은 x=동, z=남쪽 방향. 게임은 플레이어가 +z 쪽(공격 스폰)에서 -z 쪽(수비 스폰)을 보고 시작하므로 90도 돌려서 배치 */
+var AG=new THREE.Group(),IG=new THREE.Group();IG.rotation.y=-Math.PI/2;AG.add(IG);
+IG.add(floorMesh,wallMesh,roofMesh,decoMesh);
+var gnd=new THREE.Mesh(new THREE.PlaneGeometry(1200,1200),new THREE.MeshLambertMaterial({color:0x4f5b49}));
+gnd.rotation.x=-Math.PI/2;gnd.position.y=-1.65;gnd.receiveShadow=true;IG.add(gnd);
+
+/* ======== 지형지물 ======== */
+var props=new THREE.Group();IG.add(props);
+var SKIP={ultorb:1,lamp:1,beacon:1};
+FINAL.objs.forEach(function(it){
+  if(!it||!TYPES[it.t]||SKIP[it.t]||!isFinite(it.x)||!isFinite(it.z))return;
+  var o=Object.assign({t:it.t,x:+it.x,z:+it.z,ry:0,lift:0},TYPES[it.t].p);
+  ['ry','lift'].concat(Object.keys(TYPES[it.t].p)).forEach(function(k){if(isFinite(it[k]))o[k]=+it[k];});
+  if(it.t==='door'){o.uid=(+it.uid>0)?+it.uid:(++uidSeq);if(o.uid>uidSeq)uidSeq=o.uid;o.open=!!it.open;}
+  if(it.t==='switch')o.link=isFinite(it.link)?+it.link:0;
+  o.id=OBJS.length+1;OBJS.push(o);
+});
+OBJS.forEach(function(o){
+  var content=buildMesh(o),root=new THREE.Group();root.add(content);
+  root.position.set(o.x,baseY(o),o.z);root.rotation.y=o.ry||0;props.add(root);
+  o._content=content;
+});
+
+/* ======== 충돌 상자 (게임 좌표: X=-z, Z=x) ======== */
+var boxes=[],B_slab=[],B_bar=[],B_obj=[],NAVL=[],doors=[],ctrls=[];
+function gb(x0,z0,x1,z1,y0,y1,k){return {x0:-z1,x1:-z0,z0:x0,z1:x1,y0:y0,y1:y1,off:false,k:k||(y1>=3?'wall':'low')};}
+function navAdd(b,fl){
+  var rb={x0:b.x0,x1:b.x1,z0:b.z0,z1:b.z1,y0:b.y0-fl,y1:b.y1-fl,k:b.k};
+  if(rb.y1>STEP+.02&&rb.y0<1.7)NAVL.push(rb);
+}
+var NN=NX*NY;
+function greedy2(keys,cb){
+  var done=new Uint8Array(NN),a,b,w,h,q,jj,ok;
+  for(b=0;b<NY;b++)for(a=0;a<NX;a++){
+    var k0=K(a,b),key=keys[k0];if(!key||done[k0])continue;
+    w=1;while(a+w<NX&&keys[K(a+w,b)]===key&&!done[K(a+w,b)])w++;
+    h=1;ok=true;
+    while(b+h<NY&&ok){for(q=0;q<w;q++){var kq=K(a+q,b+h);if(keys[kq]!==key||done[kq]){ok=false;break;}}if(ok)h++;}
+    for(jj=0;jj<h;jj++)for(q=0;q<w;q++)done[K(a+q,b+jj)]=1;
+    cb(key,WX(X0+a*CELL),WZ(Y0+b*CELL),WX(X0+(a+w)*CELL),WZ(Y0+(b+h)*CELL));
+  }
+}
+/* 1) 높은 바닥(H>0)은 속이 찬 단상 */
+(function(){
+  var keys=new Array(NN),i,j,k;
+  for(k=0;k<NN;k++)keys[k]=(kind[k]===1&&H[k]>0.02)?('s'+H[k].toFixed(3)):null;
+  greedy2(keys,function(key,x0,z0,x1,z1){var b=gb(x0,z0,x1,z1,-0.5,parseFloat(key.slice(1)),'low');B_slab.push(b);boxes.push(b);});
+})();
+/* 2) 바닥 주변 건물/벽 덩어리 (바닥에서 3칸 이내만, 두께 약 1.4m) */
+(function(){
+  var near=new Uint8Array(NN),i,j,k,di,dj,R=3;
+  for(j=0;j<NY;j++)for(i=0;i<NX;i++){
+    if(kind[K(i,j)]!==1)continue;
+    for(dj=-R;dj<=R;dj++)for(di=-R;di<=R;di++){var ni=i+di,nj=j+dj;if(inb(ni,nj))near[K(ni,nj)]=1;}
+  }
+  var keys=new Array(NN);
+  for(k=0;k<NN;k++){
+    var kd=kind[k];
+    if(kd===1||!near[k]){keys[k]=null;continue;}
+    if(kd===2){var w=WH[k];keys[k]=w>0?('w'+w.toFixed(2)):'r';}else keys[k]='v';
+  }
+  greedy2(keys,function(key,x0,z0,x1,z1){
+    var t=key==='r'?10.8:(key==='v'?6:parseFloat(key.slice(1)));
+    var b=gb(x0,z0,x1,z1,-3,t,t>=3?'wall':'low');B_bar.push(b);boxes.push(b);
+  });
+  /* 지도 바깥 경계 */
+  var xa=WX(X0),xb=WX(X0+NX*CELL),za=WZ(Y0),zb=WZ(Y0+NY*CELL),T=4;
+  [[xa-T,za-T,xa,zb+T],[xb,za-T,xb+T,zb+T],[xa-T,za-T,xb+T,za],[xa-T,zb,xb+T,zb+T]].forEach(function(r){var b=gb(r[0],r[1],r[2],r[3],-3,14,'wall');B_bar.push(b);boxes.push(b);});
+})();
+/* 3) 봇 길찾기용: 낮은 쪽이 절벽(걸어서 못 올라가는 높이차)에 붙은 칸 */
+(function(){
+  var keys=new Array(NN),i,j,k,d;
+  for(j=0;j<NY;j++)for(i=0;i<NX;i++){
+    k=K(i,j);keys[k]=null;if(kind[k]!==1)continue;
+    for(d=0;d<4;d++){var ni=i+DX[d],nj=j+DY[d];if(!inb(ni,nj))continue;var nk=K(ni,nj);if(kind[nk]===1&&H[nk]-H[k]>STEP+0.02){keys[k]='c';break;}}
+  }
+  greedy2(keys,function(key,x0,z0,x1,z1){NAVL.push(gb(x0,z0,x1,z1,0,2,'low'));});
+})();
+/* 4) 지형지물 */
+function addObj(o){
+  var base=baseY(o),t=o.t,ry=o.ry||0,sc=o.s||1;
+  var fl=(t==='door')?doorFloor(o):gridH(o.x,o.z);if(fl===null||fl===undefined)fl=0;
+  var y0=(o.lift||0)>0.05?base:fl;
+  function R(hw,hd,lx,lz,top,k){
+    var c=Math.cos(ry),s=Math.sin(ry),cx=o.x+lx*c+lz*s,cz=o.z-lx*s+lz*c;
+    var ex=Math.abs(c)*hw+Math.abs(s)*hd,ez=Math.abs(s)*hw+Math.abs(c)*hd;
+    var b=gb(cx-ex,cz-ez,cx+ex,cz+ez,y0,top,k||(top-y0>=3?'wall':'low'));
+    boxes.push(b);B_obj.push(b);navAdd(b,fl);return b;
+  }
+  if(t==='crate'||t==='wall'||t==='platform'||t==='house'||t==='window'||t==='glasswall'||t==='ceiling')R(o.w/2,o.d/2,0,0,base+o.h);
+  else if(t==='stairs'){var n=Math.max(3,Math.round(o.h/0.2)),sd=o.d/n;for(var i=0;i<n;i++)R(o.w/2,sd/2,0,-o.d/2+(i+0.5)*sd,base+o.h*(i+1)/n,'stair');}
+  else if(t==='pillar'||t==='barrel')R(o.r*0.9,o.r*0.9,0,0,base+o.h);
+  else if(t==='tree')R(0.45*sc,0.45*sc,0,0,base+3.4*sc);
+  else if(t==='switch')R(0.3*sc,0.3*sc,0,0,base+1.1*sc);
+  else if(t==='fountain')R(1.7*sc,1.7*sc,0,0,base+0.8*sc);
+  else if(t==='generator')R(1.8*sc,0.75*sc,0,0,base+1.5*sc);
+  else if(t==='deck')R(3.2*sc,1.7*sc,0,0,base+0.5*sc);
+  else if(t==='boat')R(5.6*sc,1.55*sc,0,0,base+1.4*sc);
+  else if(t==='door'){
+    var c2=Math.cos(ry),s2=Math.sin(ry),ex2=Math.abs(c2)*o.w/2+Math.abs(s2)*o.d/2,ez2=Math.abs(s2)*o.w/2+Math.abs(c2)*o.d/2;
+    var b=gb(o.x-ex2,o.z-ez2,o.x+ex2,o.z+ez2,base,base+o.h,'door');boxes.push(b);
+    var dr={name:'문 '+o.uid,axis:'x',cx:(b.x0+b.x1)/2,cz:(b.z0+b.z1)/2,w:Math.max(o.w,o.d),dir:1,lift:true,h:o.h,uid:o.uid,
+      inner:o._content.userData.inner||null,mesh:o._content,box:b,k:o.open?1:0,open:!!o.open,open0:!!o.open,
+      b0:{x0:b.x0,x1:b.x1,z0:b.z0,z1:b.z1,y0:b.y0,y1:b.y1}};
+    doors.push(dr);
+  }
+}
+OBJS.forEach(addObj);
+/* 스위치 → 연결된 문 (E 키로 조작) */
+(function(){
+  var linked={};
+  OBJS.forEach(function(o){
+    if(o.t!=='switch')return;
+    var d=null;for(var i=0;i<doors.length;i++)if(doors[i].uid===o.link){d=doors[i];break;}
+    if(!d)return;
+    linked[d.uid]=1;
+    var c={name:'스위치 · '+d.name,cx:-o.z,cz:o.x,w:1.2,door:d,sw:true};
+    Object.defineProperty(c,'open',{get:function(){return d.open;}});
+    ctrls.push(c);
+  });
+  doors.forEach(function(d){if(!linked[d.uid])ctrls.push(d);});
+})();
+
+/* ======== 바닥 높이(웅덩이) 함수: 낮은 바닥(H<0)은 물리에서 지면 높이로 사용 ======== */
+var PIT=new Float32Array(NN);
+for(var pk=0;pk<NN;pk++)PIT[pk]=(kind[pk]===1&&H[pk]<0)?H[pk]:0;
+function GFN(X,Z){   // 게임 좌표 → 지면 높이
+  var wx=Z,wz=-X,i=Math.floor((wx/S+CX-X0)/CELL),j=Math.floor((wz/S+CY-Y0)/CELL);
+  if(i<0||j<0||i>=NX||j>=NY)return 0;
+  return PIT[j*NX+i];
+}
+
+/* ======== 미리보기 / 스폰 정보 ======== */
+var TCOL=['#bab3a8','#d8c06a','#8fc99a','#9fb3d9','#d99a92'];
+var thumbFloors=[];
+(function(){
+  var keys=new Array(NN),k;
+  for(k=0;k<NN;k++)keys[k]=kind[k]===1?('t'+tint[k]):null;
+  greedy2(keys,function(key,x0,z0,x1,z1){thumbFloors.push({x0:-z1,x1:-z0,z0:x0,z1:x1,color:TCOL[+key.slice(1)]||TCOL[0]});});
+})();
+return {group:AG,boxes:boxes,floors:thumbFloors,thumbBoxes:B_bar,roofs:[roofMesh],doors:doors,ctrls:ctrls,
+  hx:61.2,hz:64.4,navList:B_bar.concat(NAVL),seed:[7.4,-50],gfn:GFN,
+  marks:[['A',44.8,-26.8],['B',-40.4,-30.2]]};
+}
+
+
+/* ---- 봇 길찾기 (사막 / 어센트 맵 전용): 격자 + A* ---- */
+function navBuild(list,hx,hz,seed){
  const cs=1,x0=-hx-1,z0=-hz-1,w=Math.ceil((hx*2+2)/cs),h=Math.ceil((hz*2+2)/cs),blk=new Uint8Array(w*h);
  const R=.38+.28;
  for(const b of list){
@@ -6985,7 +7760,7 @@ function navBuild(list,hx,hz){
  const nav={cs,x0,z0,w,h,blk,reach:new Uint8Array(w*h),gS:new Float32Array(w*h),par:new Int32Array(w*h),mk:new Int32Array(w*h),cl:new Int32Array(w*h),st:0};
  // 수비 스폰에서 닿을 수 있는 칸만 '이동 가능'으로 표시 (닫힌 공간으로 목표를 잡지 않게)
  Object.assign(NAV,nav);
- const s=navFreeNear(0,-hz*.82);
+ const s=seed?navFreeNear(seed[0],seed[1]):navFreeNear(0,-hz*.82);
  if(s>=0){
   const q=[s];nav.reach[s]=1;
   for(let qi=0;qi<q.length;qi++){
@@ -7107,22 +7882,41 @@ function lambertize(g){   // PBR 재질 → 가벼운 Lambert (그림자·안개
   o.material=l;
  });
 }
+function mapObj(id){return id==='ascent'?ASC:(id==='asc2'?ASC2:null);}
+function navSnap(){const o={};for(const k in NAV)if(k!=='on'&&k!=='run')o[k]=NAV[k];return o;}
+function navUse(o){if(o&&o.nav)Object.assign(NAV,o.nav);}
+function withNav(build){   // 맵 하나를 새로 만들어도 지금 쓰는 맵의 길찾기 데이터는 그대로 두기
+ const prev=mapObj(curMap);if(prev&&prev.nav)prev.nav.st=NAV.st;
+ const r=build();
+ if(prev)navUse(prev);
+ return r;
+}
 function ensureAscent(){
  if(ASC)return ASC;
- try{const a=buildAscent();lambertize(a.group);a.group.visible=false;scene.add(a.group);ASC=a;navBuild(a.boxes,a.hx,a.hz);}
+ try{const a=buildAscent();lambertize(a.group);a.group.visible=false;scene.add(a.group);withNav(()=>{navBuild(a.boxes,a.hx,a.hz);a.nav=navSnap();});ASC=a;}
  catch(err){console.error('사막 맵 생성 실패',err);ASC=null;}
  return ASC;
 }
+function ensureAsc2(){
+ if(ASC2)return ASC2;
+ try{const a=buildAsc2();a.group.visible=false;scene.add(a.group);withNav(()=>{navBuild(a.navList,a.hx,a.hz,a.seed);a.nav=navSnap();});ASC2=a;}
+ catch(err){console.error('어센트 맵 생성 실패',err);ASC2=null;}
+ return ASC2;
+}
+const MAPNAME={default:'기본',ascent:'사막',asc2:'어센트'};
 function applyMap(id){
- if(id==='ascent'&&!ensureAscent())id='default';
+ if((id==='ascent'&&!ensureAscent())||(id==='asc2'&&!ensureAsc2()))id='default';
  if(id===curMap)return;
- const oldL=curMap==='ascent'?ASC.boxes:DEF_BOXES,newL=id==='ascent'?ASC.boxes:DEF_BOXES,rm=new Set(oldL);
+ const oldO=mapObj(curMap),newO=mapObj(id);
+ if(oldO&&oldO.nav)oldO.nav.st=NAV.st;
+ const oldL=oldO?oldO.boxes:DEF_BOXES,newL=newO?newO.boxes:DEF_BOXES,rm=new Set(oldL);
  for(let i=boxes.length-1;i>=0;i--)if(rm.has(boxes[i]))boxes.splice(i,1);   // 이 맵의 고정 지형만 교체 (스킬로 생긴 벽 등은 그대로)
  for(const b of newL)boxes.push(b);
- defGroup.visible=id==='default';if(ASC)ASC.group.visible=id==='ascent';
+ defGroup.visible=id==='default';if(ASC)ASC.group.visible=id==='ascent';if(ASC2)ASC2.group.visible=id==='asc2';
  curMap=id;const e=MAPCFG[id].env;
- MB.hx=id==='ascent'?ASC.hx:40;MB.hz=id==='ascent'?ASC.hz:40;
- NAV.on=id==='ascent';NAV.run=NAV.on?1.5:1;       // 사막 맵은 훨씬 넓어서 봇의 이동(비전투) 속도만 1.5배
+ MB.hx=newO?newO.hx:40;MB.hz=newO?newO.hz:40;
+ GFN=(newO&&newO.gfn)?newO.gfn:null;
+ NAV.on=!!newO;NAV.run=NAV.on?1.5:1;navUse(newO);       // 사막·어센트 맵은 훨씬 넓어서 봇의 이동(비전투) 속도만 1.5배
  scene.fog.color.setHex(e.fog[0]);scene.fog.near=e.fog[1];scene.fog.far=e.fog[2];
  hemi.color.setHex(e.hemi[0]);hemi.groundColor.setHex(e.hemi[1]);hemi.intensity=e.hemi[2];
  sun.color.setHex(e.sun[0]);sun.intensity=e.sun[1];sun.position.set(e.sun[2],e.sun[3],e.sun[4]);sun.target.position.set(0,0,0);
@@ -7134,13 +7928,15 @@ function applyMap(id){
  mapCam.position.y=e.camH;mapCam.updateMatrixWorld();sky.position.set(0,0,0);
 }
 function nearDoor(){
- if(curMap!=='ascent'||!ASC)return null;
- let best=null,bd=6;
- for(const d of ASC.doors){const dd=Math.hypot(d.cx-P.pos.x,d.cz-P.pos.z);if(dd<bd){bd=dd;best=d;}}
+ const A=mapObj(curMap);if(!A)return null;
+ const list=A.ctrls||A.doors;   // 어센트는 문마다 따로 있는 스위치 앞에서 E
+ let best=null,bd=A.ctrls?3.4:6;
+ for(const d of list){const dd=Math.hypot(d.cx-P.pos.x,d.cz-P.pos.z);if(dd<bd){bd=dd;best=d;}}
  return best;
 }
 function setDoorSolid(d,on){const i=boxes.indexOf(d.box);if(on&&i<0)boxes.push(d.box);else if(!on&&i>=0)boxes.splice(i,1);}
-function doorToggle(d){
+function doorToggle(c){
+ const d=c.door||c;
  if(d.open){   // 닫을 때 누가 문 자리에 있으면 못 닫음
   const b=d.b0,r=.5,ents=[P].concat(bots.filter(x=>!x.dead));
   for(const e of ents)if(e.pos.x+r>b.x0&&e.pos.x-r<b.x1&&e.pos.z+r>b.z0&&e.pos.z-r<b.z1&&e.pos.y<5){toast('문 사이에 있어서 닫을 수 없어요');return;}
@@ -7149,19 +7945,24 @@ function doorToggle(d){
 }
 function updateDoors(dt){
  const hint=$('doorHint');
- if(!ASC||curMap!=='ascent'){if(hint&&hint._d!=='none'){hint._d='none';hint.style.display='none';}return;}
- for(const d of ASC.doors){
+ const A=mapObj(curMap);
+ if(!A){if(hint&&hint._d!=='none'){hint._d='none';hint.style.display='none';}return;}
+ for(const d of A.doors){
   if(!d.open&&M.phase==='live'&&bots.some(b=>!b.dead&&Math.hypot(b.pos.x-d.cx,b.pos.z-d.cz)<d.w*.5+2.5))d.open=true;   // 봇은 문에 다가가면 자동으로 염
   d.k=approach(d.k,d.open?1:0,dt*(d.open?1.6:1.4));
-  const off=d.k*(d.w-.3)*d.dir,b=d.box,s=d.b0;
-  if(d.axis==='x'){d.mesh.position.x=d.cx+off;b.x0=s.x0+off;b.x1=s.x1+off;}
-  else{d.mesh.position.z=d.cz+off;b.z0=s.z0+off;b.z1=s.z1+off;}
+  const b=d.box,s=d.b0;
+  if(d.lift){const off=d.k*(d.h-.15);if(d.inner)d.inner.position.y=off;b.y0=s.y0+off;b.y1=s.y1+off;}   // 어센트 문: 위로 올라감
+  else{
+   const off=d.k*(d.w-.3)*d.dir;
+   if(d.axis==='x'){d.mesh.position.x=d.cx+off;b.x0=s.x0+off;b.x1=s.x1+off;}
+   else{d.mesh.position.z=d.cz+off;b.z0=s.z0+off;b.z1=s.z1+off;}
+  }
   setDoorSolid(d,d.k<=.8);
  }
  const nd=(M.phase==='live'&&!P.dead)?nearDoor():null;
  if(hint){if(nd&&Math.hypot(nd.cx-P.pos.x,nd.cz-P.pos.z)<5){const h='<kbd>E</kbd>'+nd.name+(nd.open?' 닫기':' 열기');if(hint._h!==h){hint._h=h;hint.innerHTML=h;}if(hint._d!=='block'){hint._d='block';hint.style.display='block';}}else if(hint._d!=='none'){hint._d='none';hint.style.display='none';}}
 }
-function resetDoors(){if(!ASC)return;for(const d of ASC.doors){d.open=false;d.k=0;}updateDoors(0);}
+function resetDoors(){const A=mapObj(curMap);if(!A)return;for(const d of A.doors){d.open=!!d.open0;d.k=d.open?1:0;}updateDoors(0);}
 function botPathStep(b){
  if(!b.path||b.pi>=b.path.length)return null;
  let wp=b.path[b.pi];
@@ -7184,9 +7985,47 @@ function drawThumb(cv,list,hx,hz,floorsList,marks){
  }
  if(marks){g.font='bold 22px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillStyle='#ff4655';for(const m of marks)g.fillText(m[0],X(m[1]),Zp(m[2]));}
 }
+/* ================= 미니맵 (왼쪽 위) ================= */
+let mmT=0,mmKey='',mmBgCv=null,mmK=1;
+const mmSeen=new Map(),_mmV=new V3();
+function mmInfo(){
+ if(curMap==='ascent'&&ASC)return{b:ASC.boxes,hx:ASC.hx,hz:ASC.hz,f:ASC.floors};
+ if(curMap==='asc2'&&ASC2)return{b:ASC2.thumbBoxes,hx:ASC2.hx,hz:ASC2.hz,f:ASC2.floors};
+ return{b:DEF_BOXES,hx:41,hz:41,f:[]};
+}
+function drawMini(dt){
+ const cv=$('miniMap');if(!cv)return;
+ mmT-=dt;if(mmT>0)return;mmT=1/30;
+ const W=cv.width,Hh=cv.height,c=mmInfo();
+ if(mmKey!==curMap||!mmBgCv){   // 맵이 바뀔 때만 지형을 다시 그림
+  mmKey=curMap;mmBgCv=document.createElement('canvas');mmBgCv.width=W;mmBgCv.height=Hh;
+  drawThumb(mmBgCv,c.b,c.hx,c.hz,c.f,null);mmK=Math.min((W-14)/(c.hx*2),(Hh-14)/(c.hz*2));mmSeen.clear();
+ }
+ const g=cv.getContext('2d'),X=x=>W/2+x*mmK,Z=z=>Hh/2+z*mmK;
+ g.globalAlpha=1;g.drawImage(mmBgCv,0,0);
+ const mo=mapObj(curMap);
+ if(mo)for(const d of mo.doors){if(d.open)continue;const b=d.b0;g.fillStyle='#e0a040';g.fillRect(X(b.x0),Z(b.z0),Math.max(2,(b.x1-b.x0)*mmK),Math.max(2,(b.z1-b.z0)*mmK));}   // 닫힌 문
+ const now=performance.now();
+ for(const b of bots){   // 내 시야에 들어온 적만 잠깐 표시
+  if(b.dead){mmSeen.delete(b);continue;}
+  if(!P.dead&&Math.hypot(b.pos.x-P.pos.x,b.pos.z-P.pos.z)<70){_mmV.set(b.pos.x,b.pos.y+1.3,b.pos.z);if(!blocked(EYE,_mmV,true))mmSeen.set(b,now);}
+  const t=mmSeen.get(b);if(!t)continue;
+  const age=now-t;if(age>800){mmSeen.delete(b);continue;}
+  g.globalAlpha=1-age/800*.65;g.fillStyle='#ff4655';g.strokeStyle='#000';g.lineWidth=1.2;
+  g.beginPath();g.arc(X(b.pos.x),Z(b.pos.z),4,0,6.2832);g.fill();g.stroke();
+ }
+ g.globalAlpha=1;
+ const px=X(P.pos.x),pz=Z(P.pos.z),a=Math.atan2(-Math.cos(yaw),-Math.sin(yaw));   // 내 위치와 바라보는 방향
+ g.save();g.translate(px,pz);g.rotate(a);
+ g.fillStyle=P.dead?'rgba(160,160,160,.2)':'rgba(125,255,214,.2)';g.beginPath();g.moveTo(0,0);g.arc(0,0,34,-.62,.62);g.closePath();g.fill();
+ g.fillStyle=P.dead?'#8a8f95':'#7dffd6';g.strokeStyle='#000';g.lineWidth=1.2;
+ g.beginPath();g.moveTo(8,0);g.lineTo(-5,5);g.lineTo(-2.5,0);g.lineTo(-5,-5);g.closePath();g.fill();g.stroke();
+ g.restore();
+}
 function drawThumbs(){
  drawThumb($('thDef'),DEF_BOXES,41,41,null,null);
  if(ensureAscent())drawThumb($('thAsc'),ASC.boxes,ASC.hx,ASC.hz,ASC.floors,[['A',-36.4,-10.4],['B',44.2,-23.4]]);
+ if(ensureAsc2())drawThumb($('thAs2'),ASC2.thumbBoxes,ASC2.hx,ASC2.hz,ASC2.floors,ASC2.marks);
 }
 function toMode(){M.phase='menu';show('menu',false);show('mapsel',false);show('agentsel',false);show('modesel',true);$('mdMsg').textContent='';}
 function toMapSel(){M.phase='menu';drawThumbs();show('menu',false);show('modesel',false);show('agentsel',false);show('mapsel',true);$('mpMsg').textContent='';}
@@ -7341,7 +8180,7 @@ document.querySelectorAll('#modesel .pk').forEach(el=>el.addEventListener('click
 }));
 document.querySelectorAll('#mapsel .pk').forEach(el=>el.addEventListener('click',()=>{
  const id=el.dataset.map;applyMap(id);
- if(curMap!==id){$('mpMsg').textContent='사막 맵을 불러오지 못했어요. 기본 맵으로 플레이해주세요.';return;}
+ if(curMap!==id){$('mpMsg').textContent=(MAPNAME[id]||'')+' 맵을 불러오지 못했어요. 기본 맵으로 플레이해주세요.';return;}
  selMap=id;toAgent();
 }));
 $('btnModeBack').addEventListener('click',toMenu);
@@ -7355,7 +8194,7 @@ $('btnQuit').addEventListener('click',toMenu);
 $('btnMenu2').addEventListener('click',toMenu);
 respawnBots();
 showVM();toMenu();
-setTimeout(ensureAscent,700);
+setTimeout(ensureAscent,700);setTimeout(ensureAsc2,1600);
 requestAnimationFrame(loop);
 })();
 </script>
